@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "open-manim-slides"
+version = "0.1.0"
+description = "An open-source framework for building Manim Slides presentations, with a controlled scaffold and Claude Code Skills for authoring and editing."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "manim",
+    "manim-slides",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/open_manim_slides"]
