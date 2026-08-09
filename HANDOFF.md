@@ -1,238 +1,190 @@
-# open-manim-slides — New Repo Handoff
+# open-manim-slides — Handoff
 
-Status: planning handoff for a brand-new session, written 2026-08-09.
-Nothing in this directory is initialized yet (no git repo, no code) — this
-file is the entire contents so far. `open-manim-slides` is a provisional
-name; rename freely, nothing depends on it yet.
+Status: updated after the first implementation session, 2026-08-09.
+Supersedes the original pre-initialization handoff (also written
+2026-08-09, same day — this project moved from "no code" to "committed,
+pushed, and stress-tested" in one session). The repo is now real: git
+initialized, MIT-licensed, pushed to **https://github.com/lapotist/open-manim-slides**
+(public). Read this file before doing further work here — it's the
+authoritative summary of what's decided, what's built, and what's next.
 
-## The Ask
+## What this project is
 
-The user wants an **open-source framework for building Manim Slides
-presentations**, distinct from their existing private lesson-content repo
-at `/home/lapotist/Documents/manim`. Explicit requirements from the
-conversation that produced this handoff:
+An open-source framework for building **Manim Slides** presentations,
+inspired by [open-slide](https://open-slide.dev/) (https://github.com/1weiho/open-slide)
+— "a slide framework built for agents," but for Manim instead of React. The
+goal is a controlled, skill-driven workflow for generating and iterating on
+slide decks, with real enforcement (things that fail loudly at construction
+time) instead of a long prose instructions file an agent might silently
+drift from.
 
-- Its own workspace/repo (confirmed: new standalone repo, not a split of
-  the existing one).
-- A **more controlled environment** for generating lessons/decks than "hope
-  the agent reads a long prose instructions file correctly."
-- **Skills for generation and editing** — Claude Code Skills (packaged
-  slash-command workflows) as the primary interface for authoring and
-  iterating on decks, not just documentation.
-- A **more interactive experience** than the current render-and-inspect
-  loop.
-- Explicit inspiration: **open-slide** (https://open-slide.dev/,
-  https://github.com/1weiho/open-slide) — "a slide framework built for
-  agents," but for React. The user wants the Manim equivalent of that
-  experience.
+It is being extracted and generalized from a private repo at
+`/home/lapotist/Documents/manim` (Traditional Chinese math lesson videos).
+That repo is the origin of the problems this framework addresses, but **no
+code from it has been ported** — see "Decisions made," below.
 
-Do not assume the user wants a 1:1 port of open-slide's mechanics — the
-project's own "no DSL, arbitrary code" philosophy doesn't map cleanly onto
-a rendered-video medium (see "Where the analogy breaks," below). Treat
-open-slide as a reference for *shape*, not a spec to copy blindly.
+## Decisions made this session
 
-## Why This Came Up: Context From the Source Repo
+These were open questions in the original handoff; all are now resolved.
 
-`/home/lapotist/Documents/manim` is a private repo producing Traditional
-Chinese-language math lesson videos with Manim Community + Manim Slides.
-During one session there, real, systemic problems surfaced when an agent
-generated lesson content with only a large prose `AGENTS.md` (527 lines) to
-go on:
+1. **No porting from the source repo — design fresh instead.** The user's
+   explicit call: `carlo_manim` (`layout.py`/`attention.py`/`base.py`) and
+   the old QA review site are both "not well made," and should not be used
+   as reference or inspiration, not just left unported. The framework's
+   design-system layer and its review/editing site are both original design
+   work addressing the same problem spaces, not extractions.
+2. **Authoring unit: one file per deck, segments as top-level functions.**
+   open-slide's one-file-per-slide convention doesn't transfer cleanly — a
+   Manim scene's segments routinely share state across `self.next_slide()`
+   boundaries (a persisting title, a diagram built up over several
+   segments) in a way independent React components don't. Chosen: one file
+   per deck, each segment as its own method (`segment_<name>`), called in
+   sequence from `construct()`. A harder alternative (true file-per-slide,
+   with a `track()`-based state-handoff registry) is a documented future
+   path if this convention proves limiting, not a current bet.
+3. **Skills are canonical plain files, Claude Code gets a symlinked
+   projection.** Adopted directly from open-slide's real (verified)
+   implementation rather than designed from scratch: `SKILL.md` files live
+   under agent-agnostic `.agents/skills/<name>/`, plus a canonical
+   `AGENTS.md`. `.claude/skills/<name>` and `CLAUDE.md` are symlinks into
+   the canonical files, purely for Claude Code's discovery mechanism.
+4. **open-slide's real source was re-verified** (not just its marketing
+   site, which the original handoff was based on). Most claims held up.
+   New/corrected details worth knowing: `/create-slide` is a multi-step
+   wizard, not single-shot; comment markers are literal JSX comments the
+   inspector UI writes at the clicked element's location (works because
+   JSX *is* the visual structure — doesn't transfer to Manim, see decision
+   6 below); there's a `/current-slide` skill that publishes the inspector's
+   current selection to a file the agent reads; assets have a two-tier
+   (per-slide + global) model.
+5. **Site rebuild direction chosen** (the "no web canvas ⇒ no HMR"
+   question). Manim CE is confirmed raster-only (no scene-level SVG/DOM
+   export); manim-slides' own FAQ confirms slides are static pre-rendered
+   video. Chosen approach:
+   - Priority: build an ID+source-location **manifest** first, drive an
+     **outline/tree list UI** (click a named element in a list) before a
+     pixel-accurate video overlay (deferred, likely 2D-only when built —
+     3D-camera scenes make screen-space bbox projection unreliable).
+   - Audience: primarily **public viewers** — a real polished
+     presentation-viewing experience, not a bare internal QA tool.
+   - Editing mechanism: a click creates a **structured, ID + file:line-
+     scoped comment/edit-request** (not live hot-editing), consumed later
+     by an apply-comments Skill. Chosen over copying open-slide's inline
+     JSX-comment-marker approach because Manim's construction calls aren't
+     co-located with their on-screen appearance the way JSX is.
+6. **Manifest schema + `track()` design finalized** (see "What's built,"
+   below, for the actual implementation). Key calls: element-centric JSON
+   (one entry per id, list of appearances), duplicate id within one
+   *segment* raises, reuse across segments is expected, bbox captured at
+   end-of-segment (not at `track()` call time) piggybacking on the same
+   `next_slide()` override already needed for the transition fix, with the
+   snapshot step failure-isolated so a bad element can't break a render.
+7. **`manim-slides` PR #664 re-checked**: still open, unmerged as of this
+   session. Only the Python-side `wait_time_between_slides` fix has been
+   built (a class attribute override in `base.py`); the CLI-level
+   Reveal.js `transition`/`background_transition` config-quoting bug PR
+   #664 addresses has **no workaround built yet** — still open work, see
+   below.
+8. **Python/tooling**: managed via `mise` (`mise.toml`, `python = "latest"`,
+   currently resolves to 3.14.7), matching the user's existing toolchain
+   conventions rather than pinning a specific version file-by-file. Package
+   uses standard `pyproject.toml`, not the source repo's `pixi.toml`.
 
-1. **Slide-to-slide flash on every transition.** Root-caused to
-   `manim-slides` defaulting `wait_time_between_slides` to `0` (cuts each
-   clip one frame short of settling) plus a Reveal.js `transition`/
-   `background_transition` config never being set. Fixed locally in the
-   source repo's shared base class. While investigating the export
-   pipeline, an **upstream manim-slides bug** was found, root-caused,
-   fixed, tested (regression test added, proven to fail without the fix
-   and pass with it), and PR'd: **https://github.com/jeertmans/manim-slides/pull/664**
-   (open, unmerged as of this handoff — check its status before assuming
-   the fix is available in a released `manim-slides` version).
+## What's built and verified this session
 
-2. **Bad spacing, alignment, and overlap across many already-rendered
-   lessons.** Root-caused to a **helper-library gap, not per-lesson
-   sloppiness**: the shared design-system layer (`carlo_manim`/`math_manim`
-   — `layout.py`, `attention.py`) offered exactly one hardcoded two-column
-   layout preset and an opacity-only "dim context" helper (explicitly *not*
-   sufficient for overlap, per the source repo's own `AGENTS.md`). 45 of 48
-   sampled lesson scenes bypassed the shared facade entirely and hand-rolled
-   ~1,580 raw `.move_to()`/`.shift()` coordinate calls. A fix was designed,
-   implemented, and unit-tested in that session:
-   - `src/carlo_manim/layout.py`: `FRAME_MARGIN`, `safe_frame()`,
-     `assert_within_safe_frame()`, `stack_column()` — margin-checked
-     placement that raises at construction time instead of silently
-     overlapping/clipping.
-   - `src/carlo_manim/attention.py`: `settle_region(old, new, run_time)` —
-     fades old content out before new content in, as one call, instead of
-     leaving "remove old before placing new" to per-scene discipline.
+- Repo: `git init`, MIT `LICENSE`, `pyproject.toml`, `mise.toml`, `README.md`,
+  `.gitignore`. Pushed to GitHub (public).
+- `AGENTS.md` (canonical) / `CLAUDE.md` (symlink) — rewritten from the
+  stale pre-init version per decision 3, above.
+- `src/open_manim_slides/base.py` — the `Slide` base class:
+  `wait_time_between_slides` fix, `track(mobj, id=...)` with same-segment
+  duplicate validation and cross-segment reuse, failure-isolated manifest
+  snapshot on `next_slide()`, JSON manifest writer on `render()`.
+  Import-verified and behavior-tested against the real installed
+  `manim`/`manim-slides` (not just written from documentation knowledge).
+- `src/open_manim_slides/layout.py` — **one** primitive:
+  `assert_within_safe_frame(mobj)`, a margin-vs-frame-edge check. This is a
+  deliberately minimal first slice of the full design system (typography,
+  color tokens, slide templates, and — as of this session's testing,
+  urgently — inter-element overlap checking — are all still unbuilt; see
+  "Immediate next steps").
+- `src/open_manim_slides/scaffold.py` — deterministic deck generator
+  (`new_deck(title, segments, out_dir)`), tested directly.
+- `.agents/skills/create-deck/SKILL.md` (+ `.claude/skills/create-deck`
+  symlink) — wizard that scaffolds via `scaffold.py`, then fills in each
+  segment's content, following the `track()`/`assert_within_safe_frame()`
+  conventions.
+- `tests/` — 17 passing tests (`test_base.py`, `test_layout.py`,
+  `test_scaffold.py`, and `test_render_smoke.py` — a real end-to-end
+  render, not mocked).
+- Two example decks used for dev testing: `the_water_cycle.py` (clean,
+  hand-authored carefully) and `layers_of_the_earth.py` (deliberately naive
+  placement, used as a stress test — see next section). **`decks/` is
+  gitignored and not tracked on `main`** — these are dev-only scratch decks
+  for exercising the framework, not curated examples. Real example content
+  gets added once the framework is further along (see "Immediate next
+  steps").
 
-   These two files in the source repo are a concrete, tested starting point
-   for this new framework's design-system layer — read them directly
-   rather than re-deriving from this description.
+## Key discovery: generation-quality testing found a real gap
 
-3. **The core lesson learned**: when problems are systemic (a missing
-   library primitive, a wrong pipeline default) rather than random
-   per-lesson mistakes, neither "manually review everything" nor
-   "regenerate everything and hope" is right. Fix the root cause first
-   (cheap, deterministic), *then* decide regenerate-vs-hand-fix per item.
-   This is the actual motivation for wanting a more controlled framework:
-   the current repo has good rules written down, but no scaffold and no
-   enforcement, so agents (and humans) drift from them silently.
+After the scaffold/base-class/Skill were built and verified to *render
+without errors*, a separate question was tested: does it generate *good*
+slides? Method (worth reusing going forward): render a deck, check the
+written manifest for bounding-box overlaps between tracked elements, and
+pull actual frames (`ffmpeg` + visual inspection) to confirm.
 
-## What open-slide Actually Does (researched via WebSearch + WebFetch,
-2026-08-09 — re-verify against the live site/repo before designing, this
-project was ~2 months old at research time and likely still moving fast)
+Result on `layers_of_the_earth.py` (four labels placed via
+`next_to(circle, RIGHT)` on concentric circles): **all four labels overlap
+each other**, rendering as an unreadable garbled mess. Confirmed both by a
+bbox-overlap script and by looking directly at an extracted frame. This is
+the exact failure mode the project exists to prevent (see the source
+repo's `carlo_manim` incident, decision 1 above) — and it happened even
+with `assert_within_safe_frame` in place, because that check only guards
+against the *frame edge*, not against other elements.
 
-- **Philosophy**: "Slides as code. Crafted by agents." No DSL — every slide
-  is an arbitrary React component rendered into a fixed 1920×1080 canvas.
-  The framework's stated rationale: agents are better at generating and
-  refactoring real code than navigating a constrained slide-builder UI or
-  proprietary format.
-- **Scaffold**: `npx @open-slide/cli init my-deck` creates a workspace;
-  Vite/React/tsconfig internals stay hidden inside a `core` package. Slides
-  live at `slides/<name>/index.tsx`, each with an optional `assets/`
-  subfolder.
-- **Author**: the agent generates new slide pages from natural-language
-  prompts via a slash command, e.g. `/create-slide for Q2 roadmap`.
-- **Iterate — two complementary modes**:
-  - *Visual editor*: toggle inspect mode, click a canvas element, edit
-    text/font/color/image directly. Edits buffer in memory, then commit as
-    **one HMR write** on save.
-  - *Comment-driven*: leave `@slide-comment` markers directly in the
-    source `.tsx` file, then run `/apply-comments` — the agent rewrites
-    only the flagged sections and clears the markers.
-- **Assets**: in-editor logo search via svgl (1500+ logos), drag/rename/
-  replace without leaving the tool.
-- **Agent-agnostic by design**: explicitly supports Claude Code, Codex,
-  Cursor, Gemini CLI, OpenCode, Windsurf, Zed — "anything that edits React
-  works." This is achieved by keeping the agent-facing surface as plain
-  files (slash-command definitions, source comments), not a
-  Claude-Code-specific integration.
-- **Version control**: every slide is a real file, so git/PR review works
-  for free — comments-in-source double as a collaborative revision
-  mechanism.
+A second, subtler gap surfaced during this test: the manifest's
+`appearances` list only records the segment where `track()` was called,
+not every segment an element remains visually present in — but Manim
+elements persist on screen once added unless explicitly removed. A naive
+per-segment overlap check therefore misses real co-presence; the correct
+check compares all labels pairwise regardless of segment. This also
+matters for the future site's "highlight during active segments" UI (an
+element should show as active in every segment it's actually still visible
+in, not just the one it was first tracked in).
 
-Sources: https://open-slide.dev/, https://github.com/1weiho/open-slide
+## Immediate next steps (priority order)
 
-## Where the Analogy Maps Cleanly
+1. ~~Build `assert_no_overlap(*mobjects)`~~ — **DONE.** Added to
+   `layout.py` alongside `assert_within_safe_frame`, same fail-fast
+   philosophy (raise at construction time). Confirmed it catches the real
+   `layers_of_the_earth.py` bug directly (crust-label vs. mantle-label),
+   without needing a render — 5 tests added in `test_layout.py`, 17/17
+   passing overall. **Not yet done**: going back and fixing
+   `layers_of_the_earth.py`'s actual placement, and wiring
+   `assert_no_overlap` into `create-deck`'s `SKILL.md` instructions so
+   future generation actually calls it.
+2. **Fix the manifest's appearance-tracking gap** — track "still visible"
+   across segments, not just "first tracked in." Needed for the overlap
+   checker to be usable *automatically* (right now it must be called
+   manually with an explicit list of co-visible elements) and for the
+   future site.
+3. **Continue the full design system** beyond the two safety primitives:
+   typography scale, color/theme tokens, reusable slide templates —
+   deferred scope from decision 1/6, not yet started.
+4. **Pin a `manim-slides` PR #664 workaround** — still open upstream, no
+   local workaround built yet (only the unrelated Python-side
+   `wait_time_between_slides` fix is done).
+5. **Site build-out** (decision 5) — manifest schema and `track()` exist
+   and are tested; the site itself (tech stack, actual UI, apply-comments
+   Skill, public/author permission split) is still entirely undesigned.
+6. **Grow example content** — two dev-only decks exist locally now (water
+   cycle, layers of the earth); a public framework will eventually want a
+   curated, gitignore-cleared example gallery. Not until the framework is
+   further along (see decision on `decks/` being dev-only, above).
 
-- **"Arbitrary code, no DSL"** — Manim scenes are *already* arbitrary
-  Python (each lesson is a `Scene`/`Slide` subclass). This part of
-  open-slide's philosophy is free; Manim never had a DSL problem to begin
-  with. The actual gap in the source repo wasn't "too constrained," it was
-  "too under-supported" (see helper-library gap above).
-- **Fixed canvas** — Manim already renders into a fixed frame
-  (`config.frame_width` / `config.frame_height`). Direct parallel to
-  open-slide's 1920×1080 canvas.
-- **`/create-slide`-style generation command** — directly buildable as a
-  Claude Code Skill/slash command, e.g. `/new-lesson`, that scaffolds a new
-  deck's files with the required structure pre-filled (this was recommended,
-  but not built, in the source-repo session — see "Immediate Next Steps").
-- **File-based, git/PR-reviewable** — already true for Manim scene code;
-  nothing new needed here.
-- **`@slide-comment` + `/apply-comments`** — the source repo already has
-  adjacent infrastructure worth mining before building this from scratch:
-  a QA review site (`scripts/build_site.py`, `scripts/public_site_assets/`,
-  `scripts/qa_slides.py`) with a per-segment review-status schema
-  (`qa/review-status.json`) that round-trips reviewer notes. It's not
-  currently wired to an agent-apply step, but it's much closer to
-  open-slide's comment-loop than starting fresh.
+## Reference
 
-## Where the Analogy Breaks — Open Design Problems for This Session
-
-- **No web canvas ⇒ no HMR.** open-slide's core interactivity (click an
-  element, see it change instantly) depends on a live DOM. Manim produces
-  rendered video. There is no drop-in equivalent. This is the single
-  biggest open design question. Candidates worth evaluating, roughly
-  cheapest-to-build first:
-  1. Fast low-quality/low-resolution segment re-renders as the "preview"
-     loop (Manim already supports `--quality l`; the source repo's
-     `pixi run lessons render <id> --quality l` is evidence this is fast
-     enough to iterate with).
-  2. Lean on the existing segment-based review site as the "visual" side
-     of iteration (watch, don't drag) — comment-driven editing rather than
-     direct manipulation, which is a legitimate and simpler alternative to
-     open-slide's click-to-edit inspector, not just a fallback.
-  3. Something closer to Manim's own interactive/Jupyter preview for a
-     tighter loop during authoring, before a full segment render.
-- **Video segments, not a single continuous DOM.** open-slide's
-  "slide = one file" maps to Manim Slides' "segment = one
-  `self.next_slide()` boundary," but a single Manim *scene* file already
-  contains many segments (unlike open-slide, where one file is one slide).
-  Decide up front whether this framework's unit of authoring is "one file
-  per deck" (current source-repo convention) or "one file per slide"
-  (open-slide's convention, arguably better for agent-sized diffs and
-  parallel editing) — this is a real architecture decision, not a detail.
-- **Agent-agnostic vs. Claude-Code-specific.** The user asked specifically
-  for "skills," which is Claude Code's term for its packaged slash-command
-  mechanism. open-slide achieves multi-agent support by keeping its
-  agent-facing surface as plain markdown/files rather than a
-  platform-specific integration. Decide deliberately whether this
-  framework commits to Claude Code Skills as a first-class citizen (fine —
-  the user is a Claude Code user and asked for skills explicitly) while
-  still keeping the underlying commands plain-file-based enough that
-  other agents *could* drive them later, rather than accidentally building
-  something Claude-Code-only by default.
-
-## Concrete Extraction Candidates From the Source Repo
-
-Bring over and generalize (strip Traditional-Chinese-specific and
-exam-content-specific assumptions):
-
-- `src/carlo_manim/layout.py`, `src/carlo_manim/attention.py` (and their
-  `math_manim` facades) — the fixed margin/overlap primitives described
-  above. Concrete, tested code, not a proposal.
-- `src/carlo_manim/base.py` (`CarloSlide`/`MathSlide`) — the
-  `wait_time_between_slides` fix and the general "stable base class" shape.
-- The QA/review-site machinery (`scripts/build_site.py`,
-  `scripts/public_site_assets/`, `scripts/qa_slides.py`,
-  `qa/review-status.json` schema) — closest existing thing to open-slide's
-  "iterate" loop; needs a feedback-to-agent connection, not a rewrite.
-- The production-state lifecycle concept (`discovered → planned →
-  storyboarded → math_verified → draft_rendered → visual_verified →
-  published`) — a reasonable general content pipeline if renamed away from
-  math-specific terms (e.g. `math_verified` → `content_verified`).
-
-Leave behind (repo-specific, don't generalize):
-
-- Traditional Chinese language requirements, presenter-script conventions
-  tied to that.
-- Source-provenance/licensing rules specific to clearing exam-content
-  rights (`docs/provenance/`, `NOTICE.md` split, `catalog/` schema).
-- Anything keyed to "problem/exam/collection" as the unit of content — the
-  new framework's unit should be domain-neutral ("deck," "slide").
-
-Does not exist yet, needs building:
-
-- The scaffold/generation Skill (open-slide's `init` + `create-slide`
-  equivalent).
-- An `/apply-comments`-equivalent Skill wired to the review-site's stored
-  notes.
-- The fast-preview iteration loop (see "Where the analogy breaks").
-- Neutral example content (not Chinese math problems) for a public,
-  general-audience framework.
-
-## Immediate Next Steps
-
-1. Initialize the actual repo here (git init, license — the source repo
-   uses MIT for code / CC BY 4.0 for content, a reasonable default to
-   reuse), decide the final project name.
-2. Re-fetch https://open-slide.dev/ and read
-   https://github.com/1weiho/open-slide's actual source (not just the
-   marketing site) for the CLI implementation and slash-command file
-   format — this handoff is based on the public site's description, not
-   the code.
-3. Decide the authoring-unit question above (one file per deck vs. per
-   slide) before writing any scaffold, since it shapes everything
-   downstream.
-4. Copy and generalize `carlo_manim`'s `layout.py`/`attention.py`/
-   `base.py` from `/home/lapotist/Documents/manim/src/carlo_manim/` as the
-   first real code in this repo, rather than redesigning from zero.
-5. Check the status of https://github.com/jeertmans/manim-slides/pull/664
-   before depending on the fix being in a released version — pin a
-   workaround (like the source repo's own `build_lessons.py` transition-
-   quoting workaround) if it's still unmerged.
-6. Design one Skill end-to-end (recommend starting with the generation/
-   scaffold one, since it has the clearest open-slide precedent) before
-   building the harder iterate/apply-comments loop.
+- Repo: https://github.com/lapotist/open-manim-slides
+- Upstream manim-slides bug being tracked: https://github.com/jeertmans/manim-slides/pull/664
+- open-slide (design reference for *shape*, not a spec to copy blindly):
+  https://open-slide.dev/, https://github.com/1weiho/open-slide

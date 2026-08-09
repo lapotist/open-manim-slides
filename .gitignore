@@ -7,3 +7,7 @@ dist/
 media/
 slides/
 .pytest_cache/
+
+# Example/test decks: dev-only until the framework is far enough along to
+# curate a real public example gallery. See HANDOFF.md.
+decks/
