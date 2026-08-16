@@ -15,19 +15,30 @@ def test_scaffold_then_render_produces_a_video(tmp_path):
     from manim import config
 
     deck_path = new_deck("Smoke Test Deck", ["first", "second"], out_dir=tmp_path)
-    # The scaffolder leaves `pass` stubs; give each segment trivial content
-    # so the scene has something to render.
+    # The scaffolder leaves a checklist comment above the baked-in overlap
+    # check; give each segment trivial content above that check, same as
+    # real authoring would, so the scene has something to render and the
+    # scaffolded self.assert_no_overlap_among_tracked() call actually runs.
+    # Anchored on the assert line rather than the checklist's wording so
+    # this test doesn't silently inject nothing when the checklist changes.
+    assert_line = "        self.assert_no_overlap_among_tracked()\n"
     source = deck_path.read_text().replace(
-        "        # TODO: author this segment's content.\n        pass",
-        "        self.wait(0.2)",
+        assert_line,
+        "        self.wait(0.2)\n" + assert_line,
     )
     deck_path.write_text(source)
 
     media_dir = tmp_path / "media"
     original_media_dir = config.media_dir
     original_quality = (config.pixel_width, config.pixel_height, config.frame_rate)
+    original_output_file = config.output_file
     config.media_dir = str(media_dir)
     config.pixel_width, config.pixel_height, config.frame_rate = 320, 180, 15
+    # config.output_file is a global that sticks around after a render --
+    # left as-is, a later render() in the same process reuses the previous
+    # scene's stale output path instead of deriving its own from the new
+    # scene's name, and its own video never gets written.
+    config.output_file = ""
 
     try:
         spec = importlib.util.spec_from_file_location("smoke_test_deck", deck_path)
@@ -40,6 +51,7 @@ def test_scaffold_then_render_produces_a_video(tmp_path):
     finally:
         config.media_dir = original_media_dir
         config.pixel_width, config.pixel_height, config.frame_rate = original_quality
+        config.output_file = original_output_file
         sys.modules.pop("smoke_test_deck", None)
 
     videos = list(media_dir.rglob("SmokeTestDeck.mp4"))

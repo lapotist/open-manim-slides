@@ -23,12 +23,18 @@ def _class_name(title: str) -> str:
     return "".join(word.capitalize() for word in words) or "Deck"
 
 
-def render_deck_source(title: str, segments: list[str]) -> str:
+def render_deck_source(title: str, segments: list[str], audience: str | None = None) -> str:
     """Render the Python source for a new deck file.
 
     `segments` is a list of short segment names (e.g. ["intro", "main-idea",
     "summary"]); each becomes its own `segment_<name>` function, called in
     order from `construct()`.
+
+    `audience` (e.g. "middle-school", "high-school") is recorded as a
+    module-level `AUDIENCE` constant so a later editing session inherits
+    the constraint. Deliberately *not* part of the docstring: the
+    webrunner's deck-title regex captures everything between the docstring
+    quotes, so a second line there would leak into the displayed title.
     """
     if not segments:
         raise ValueError("A deck needs at least one segment.")
@@ -51,32 +57,53 @@ def render_deck_source(title: str, segments: list[str]) -> str:
         "",
         "from open_manim_slides import Slide, assert_within_safe_frame",
         "",
-        "",
-        f"class {class_name}(Slide):",
-        "    def construct(self) -> None:",
     ]
+    if audience is not None:
+        lines.append(f'AUDIENCE = "{audience}"')
+        lines.append("")
+    lines.extend(
+        [
+            "",
+            f"class {class_name}(Slide):",
+            "    def construct(self) -> None:",
+        ]
+    )
     for fn_name in segment_fn_names:
         lines.append(f"        self.{fn_name}()")
         lines.append("        self.next_slide()")
     lines.append("")
     lines.append("")
 
+    # The checklist rides inside the file the agent is editing -- in
+    # context on every edit, deleted as the segment gets filled in --
+    # rather than living only in skill prose it may have stopped attending
+    # to. Mirrors the create-deck skill's content rules; keep in sync.
+    checklist = [
+        "        # TODO: author this segment above the assert, then delete this checklist:",
+        "        #  [ ] something already on screen must CHANGE (Transform / .animate /",
+        "        #      MoveAlongPath) -- entrances like Write/FadeIn/Create don't count",
+        "        #  [ ] carry the previous segment's figure in and move it aside; only 2",
+        "        #      segments per deck may start from a cleared frame",
+        "        #  [ ] at least one non-text mobject, with on-screen text anchored to it",
+        "        #  [ ] every action named in on-screen text is performed by an animation",
+        "        #  [ ] Write() is for text only -- Create/DrawBorderThenFill for shapes",
+    ]
     for raw_name, fn_name in zip(segments, segment_fn_names):
         lines.append(f"    def {fn_name}(self) -> None:")
         lines.append(f'        """{raw_name}"""')
-        lines.append("        # TODO: author this segment's content.")
-        lines.append("        pass")
+        lines.extend(checklist)
+        lines.append("        self.assert_no_overlap_among_tracked()")
         lines.append("")
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
 
 
-def new_deck(title: str, segments: list[str], out_dir: Path | str) -> Path:
+def new_deck(title: str, segments: list[str], out_dir: Path | str, audience: str | None = None) -> Path:
     """Write a new deck file into `out_dir` and return its path."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     file_name = _slugify(title) + ".py"
     out_path = out_dir / file_name
-    out_path.write_text(render_deck_source(title, segments))
+    out_path.write_text(render_deck_source(title, segments, audience=audience))
     return out_path
