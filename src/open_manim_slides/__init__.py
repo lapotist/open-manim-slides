@@ -1,4 +1,5 @@
 from open_manim_slides.base import Slide
+from open_manim_slides.convert import convert_to_html
 from open_manim_slides.layout import assert_no_overlap, assert_reasonably_centered, assert_within_safe_frame
 from open_manim_slides.theme import (
     COLOR_ACCENT,
@@ -40,6 +41,7 @@ __all__ = [
     "assert_no_overlap",
     "assert_reasonably_centered",
     "assert_within_safe_frame",
+    "convert_to_html",
     "diagram_with_caption",
     "heading",
     "title_slide",
