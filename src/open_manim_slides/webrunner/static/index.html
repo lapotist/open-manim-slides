@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>open-manim-slides — Runner</title>
+<style>
+  :root {
+    --bg: #0b0e10;
+    --surface: #14181b;
+    --border: #262c30;
+    --text: #e7edee;
+    --text-muted: #8a9aa1;
+    --accent: #3b82c4;
+    --accent-soft: #17293a;
+    --error: #d9714e;
+    --error-soft: #331d14;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+  }
+
+  .page {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+    transition: max-width 0.2s ease;
+  }
+
+  /* Wider while presenting: the closer the iframe's normal size is to its
+     fullscreen size, the less Reveal.js/the background videos have to
+     reflow and re-decode when requestFullscreen() jumps the resolution,
+     which is what shows up as a stall right after fullscreening. */
+  .page.presenting {
+    max-width: 1200px;
+  }
+
+  header h1 {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0 0 4px;
+  }
+
+  header p {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin: 0 0 36px;
+  }
+
+  .deck-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .deck-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+
+  .deck-card .title {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .deck-card .meta {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    margin-top: 2px;
+  }
+
+  button {
+    font: inherit;
+    cursor: pointer;
+    border: none;
+    border-radius: 7px;
+    padding: 9px 16px;
+    font-weight: 600;
+    font-size: 13.5px;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover { filter: brightness(1.1); }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+  }
+
+  .btn-secondary:hover { color: var(--text); border-color: var(--text-muted); }
+
+  .empty {
+    color: var(--text-muted);
+    font-size: 14px;
+    padding: 24px 0;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+  }
+
+  .panel .title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 18px;
+  }
+
+  .progress-track {
+    background: var(--border);
+    border-radius: 999px;
+    height: 8px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    background: var(--accent);
+    height: 100%;
+    width: 0%;
+    transition: width 0.25s ease;
+  }
+
+  .progress-status {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .error-box {
+    background: var(--error-soft);
+    color: var(--error);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 13.5px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    margin-top: 16px;
+    white-space: pre-wrap;
+  }
+
+  .presenter-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .presenter-bar .title {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .presenter-actions { display: flex; gap: 8px; }
+
+  iframe.presenter {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #000;
+  }
+
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="page" id="page">
+  <header>
+    <h1>open-manim-slides — Runner</h1>
+    <p>Pick a deck, render it, present it — all in one page.</p>
+  </header>
+
+  <section id="deck-list-section">
+    <div id="deck-list" class="deck-list"></div>
+  </section>
+
+  <section id="progress-section" class="hidden">
+    <div class="panel">
+      <div class="title" id="progress-title">Rendering…</div>
+      <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="progress-status">
+        <span id="progress-message">Starting…</span>
+        <span id="progress-percent">0%</span>
+      </div>
+      <div id="error-box" class="error-box hidden"></div>
+      <div style="margin-top: 18px;">
+        <button class="btn-secondary" id="cancel-btn">Back to decks</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="presenter-section" class="hidden">
+    <div class="presenter-bar">
+      <p class="title" id="presenter-title"></p>
+      <div class="presenter-actions">
+        <button class="btn-secondary" id="fullscreen-btn">Fullscreen</button>
+        <button class="btn-secondary" id="back-btn">Back to decks</button>
+      </div>
+    </div>
+    <iframe class="presenter" id="presenter-frame" allowfullscreen></iframe>
+  </section>
+</div>
+
+<script>
+  const pageEl = document.getElementById("page");
+  const deckListSection = document.getElementById("deck-list-section");
+  const deckListEl = document.getElementById("deck-list");
+  const progressSection = document.getElementById("progress-section");
+  const progressTitle = document.getElementById("progress-title");
+  const progressFill = document.getElementById("progress-fill");
+  const progressMessage = document.getElementById("progress-message");
+  const progressPercent = document.getElementById("progress-percent");
+  const errorBox = document.getElementById("error-box");
+  const presenterSection = document.getElementById("presenter-section");
+  const presenterTitle = document.getElementById("presenter-title");
+  const presenterFrame = document.getElementById("presenter-frame");
+
+  let currentEventSource = null;
+
+  function showOnly(section) {
+    for (const el of [deckListSection, progressSection, presenterSection]) {
+      el.classList.toggle("hidden", el !== section);
+    }
+    pageEl.classList.toggle("presenting", section === presenterSection);
+  }
+
+  function closeStream() {
+    if (currentEventSource) {
+      currentEventSource.close();
+      currentEventSource = null;
+    }
+  }
+
+  // Setting `src` alone does not focus the iframe -- without an explicit
+  // focus, keyboard input (arrow keys / space, Reveal.js's whole
+  // navigation model) keeps going to the parent page instead of the
+  // presentation, so it looks entirely unresponsive until something else
+  // happens to focus it (entering fullscreen does, which is why it only
+  // "worked" that way before this fix).
+  presenterFrame.addEventListener("load", () => {
+    presenterFrame.contentWindow?.focus();
+  });
+  presenterSection.addEventListener("click", () => {
+    presenterFrame.contentWindow?.focus();
+  });
+
+  // Real URL state for the two navigable views (list / presenting a
+  // specific deck) instead of one static URL for the whole app -- so the
+  // browser's actual back/forward (or a trackpad/mouse back-forward
+  // gesture) lands on a predictable view instead of leaving the app or
+  // showing a stale iframe pointed at the wrong deck.
+  function showPresenter(title, outputUrl) {
+    presenterTitle.textContent = title;
+    presenterFrame.src = outputUrl;
+    showOnly(presenterSection);
+  }
+
+  function showDeckList() {
+    presenterFrame.src = "about:blank";
+    showOnly(deckListSection);
+  }
+
+  window.addEventListener("popstate", (event) => {
+    const state = event.state;
+    if (state && state.view === "presenter") {
+      showPresenter(state.title, state.outputUrl);
+    } else {
+      showDeckList();
+    }
+  });
+
+  async function loadDecks() {
+    const res = await fetch("/api/decks");
+    const decks = await res.json();
+    deckListEl.innerHTML = "";
+    if (decks.length === 0) {
+      deckListEl.innerHTML = '<div class="empty">No decks found in decks/ yet. Use /create-deck to make one.</div>';
+      return;
+    }
+    for (const deck of decks) {
+      const card = document.createElement("div");
+      card.className = "deck-card";
+      card.innerHTML = `
+        <div>
+          <div class="title">${deck.title}</div>
+          <div class="meta">${deck.file} · ${deck.class_name}</div>
+        </div>
+      `;
+      const btn = document.createElement("button");
+      btn.className = "btn-primary";
+      btn.textContent = "Render & Present";
+      btn.addEventListener("click", () => startRender(deck));
+      card.appendChild(btn);
+      deckListEl.appendChild(card);
+    }
+  }
+
+  async function startRender(deck) {
+    progressTitle.textContent = `Rendering “${deck.title}”`;
+    progressFill.style.width = "0%";
+    progressMessage.textContent = "Starting…";
+    progressPercent.textContent = "0%";
+    errorBox.classList.add("hidden");
+    showOnly(progressSection);
+
+    const res = await fetch(`/api/render/${deck.id}`, { method: "POST" });
+    if (!res.ok) {
+      progressMessage.textContent = "Failed to start render.";
+      return;
+    }
+    const { job_id } = await res.json();
+
+    closeStream();
+    currentEventSource = new EventSource(`/api/render/${job_id}/events`);
+    currentEventSource.onmessage = (event) => {
+      const state = JSON.parse(event.data);
+      progressFill.style.width = `${state.progress}%`;
+      progressPercent.textContent = `${state.progress}%`;
+      progressMessage.textContent = state.message;
+
+      if (state.status === "error") {
+        errorBox.textContent = state.error;
+        errorBox.classList.remove("hidden");
+        closeStream();
+      } else if (state.status === "done") {
+        closeStream();
+        const params = new URLSearchParams({ present: state.output_url, title: deck.title });
+        history.pushState(
+          { view: "presenter", title: deck.title, outputUrl: state.output_url },
+          "",
+          `?${params}`
+        );
+        showPresenter(deck.title, state.output_url);
+      }
+    };
+    currentEventSource.onerror = () => {
+      progressMessage.textContent = "Connection to the server was lost.";
+      closeStream();
+    };
+  }
+
+  document.getElementById("cancel-btn").addEventListener("click", () => {
+    closeStream();
+    history.pushState({ view: "list" }, "", "/");
+    showDeckList();
+  });
+
+  document.getElementById("back-btn").addEventListener("click", () => {
+    history.pushState({ view: "list" }, "", "/");
+    showDeckList();
+  });
+
+  document.getElementById("fullscreen-btn").addEventListener("click", async () => {
+    await presenterFrame.requestFullscreen?.();
+    presenterFrame.contentWindow?.focus();
+  });
+
+  // Restore state from the URL on a fresh load (reload, direct link, or a
+  // browser/session restore landing on a `?present=` URL) instead of
+  // always resetting to the deck list regardless of what's in the address
+  // bar.
+  const initialParams = new URLSearchParams(location.search);
+  const initialPresent = initialParams.get("present");
+  const initialTitle = initialParams.get("title");
+  if (initialPresent && initialTitle) {
+    history.replaceState(
+      { view: "presenter", title: initialTitle, outputUrl: initialPresent },
+      "",
+      location.search
+    );
+    showPresenter(initialTitle, initialPresent);
+  } else {
+    history.replaceState({ view: "list" }, "", "/");
+  }
+
+  loadDecks();
+</script>
+</body>
+</html>

@@ -17,6 +17,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "httpx",
+]
+web = [
+    "fastapi",
+    "uvicorn",
 ]
 
 [tool.hatch.build.targets.wheel]

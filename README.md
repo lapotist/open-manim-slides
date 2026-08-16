@@ -26,6 +26,25 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+## Running a deck
+
+CLI: render, then present with arrow keys / click:
+
+```bash
+manim render decks/<file>.py <ClassName>
+manim-slides present <ClassName>
+```
+
+Or a local web UI that does both, with a progress bar and an in-browser
+presenter — see `src/open_manim_slides/webrunner/`. One-time setup, then
+launch any time with `./run-webrunner.sh`:
+
+```bash
+pip install -e ".[web]"   # once
+./run-webrunner.sh        # every time after that
+# open http://127.0.0.1:8000
+```
+
 ## License
 
 MIT — see `LICENSE`.
