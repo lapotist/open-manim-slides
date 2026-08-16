@@ -1,10 +1,13 @@
 """Base Slide class: segment-boundary manifest capture + transition-flash fix.
 
-NOTE: manim-slides isn't installed in this environment yet (blocked on a
-system dependency), so the exact `Slide.next_slide()` signature and the
-`wait_time_between_slides` attribute name below are written from
-documentation knowledge, not verified against an importable package. Recheck
-both against the installed `manim_slides` source once available.
+Verified against installed `manim_slides` 5.6.0. Notably,
+`wait_time_between_slides` is a `@property` (getter/setter, clamped to
+`>= 0`) backed by a private `_wait_time_between_slides`, not a plain
+attribute -- `Slide.__init__` below sets it *through* the property rather
+than shadowing it with a class attribute. A shadowing class attribute would
+silently defeat the property's setter for anyone who later does
+`self.wait_time_between_slides = ...` inside their own `construct()`, which
+is exactly the pattern manim-slides' own docs demonstrate.
 """
 
 from __future__ import annotations
@@ -18,9 +21,15 @@ from typing import Any
 from manim import config
 from manim_slides import Slide as _BaseSlide
 
+from open_manim_slides.layout import assert_no_overlap, assert_reasonably_centered
+
 logger = logging.getLogger(__name__)
 
 _PACKAGE_DIR = pathlib.Path(__file__).resolve().parent
+
+# manim-slides defaults this to 0, which cuts each clip one frame short of
+# settling and causes a visible flash on every segment transition.
+DEFAULT_WAIT_TIME_BETWEEN_SLIDES: float = 0.15
 
 
 def _caller_location() -> dict[str, Any] | None:
@@ -49,30 +58,55 @@ def _normalized_bbox(mobj: Any) -> list[float] | None:
     return [x_min, y_min, x_max, y_max]
 
 
+def _removal_covers(removed: Any, tracked: Any) -> bool:
+    """Would removing `removed` (as passed to `Scene.remove`) take `tracked` off screen?
+
+    `removed` may itself be a transient group (e.g. `FadeOut(a, b)` wraps
+    `a`/`b` in a `Group` before handing it to `Scene.remove`), so checking
+    family membership rather than identity is what makes this correct for
+    the common multi-mobject fade-out case.
+    """
+    try:
+        return tracked is removed or tracked in removed.get_family()
+    except Exception:
+        return tracked is removed
+
+
 class Slide(_BaseSlide):
     """Framework base class: fixes the segment-transition flash and records
     an ID-addressable manifest of tracked elements for the (not-yet-built)
     review site.
     """
 
-    # manim-slides defaults this to 0, which cuts each clip one frame short
-    # of settling and causes a visible flash on every segment transition.
-    wait_time_between_slides: float = 0.15
-
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        self.wait_time_between_slides = DEFAULT_WAIT_TIME_BETWEEN_SLIDES
         self._manifest: dict[str, dict[str, Any]] = {}
         self._segment_index: int = 0
         self._segment_tracked_ids: set[str] = set()
-        self._pending_snapshot: dict[str, Any] = {}
+        self._tracked_mobjects: dict[str, Any] = {}
+        self._active_ids: set[str] = set()
 
-    def track(self, mobj: Any, id: str) -> Any:  # noqa: A002 - matches the design's `id=` kwarg
+    def track(self, mobj: Any, id: str, *, decorative: bool = False) -> Any:  # noqa: A002 - matches the design's `id=` kwarg
         """Tag `mobj` with a stable, human-meaningful id for the manifest.
 
         Raises if `id` was already used earlier in the *same* segment (almost
         certainly a copy-paste mistake). Reusing an id in a *later* segment is
         expected -- it means "this element persists or reappears" -- and is
         allowed.
+
+        `decorative=True` marks structural/backdrop content (a coordinate
+        axis, a guide circle, an angle-arc indicator) that's still worth
+        recording in the manifest but shouldn't participate in
+        `assert_no_overlap_among_tracked()`'s pairwise check. This exists
+        because a bounding-box overlap test is a poor proxy for curved or
+        diagonal shapes -- a point or line anywhere on/inside a circle
+        centered at C with radius R always has coordinates within
+        `[C-R, C+R]` on both axes, i.e. within the circle's own bounding
+        box, so tracking a circle alongside anything radiating from its
+        center false-positives at every angle. Prefer this over leaving an
+        element untracked entirely: it keeps the element addressable for
+        the future review site while still opting it out of the check.
         """
         if id in self._segment_tracked_ids:
             raise ValueError(
@@ -86,11 +120,65 @@ class Slide(_BaseSlide):
             self._manifest[id] = {
                 "id": id,
                 "label": id,
+                "decorative": decorative,
                 "source": _caller_location(),
                 "appearances": [],
             }
-        self._pending_snapshot[id] = mobj
+        self._tracked_mobjects[id] = mobj
+        self._active_ids.add(id)
         return mobj
+
+    def remove(self, *mobjects: Any) -> None:
+        """Deactivate tracked ids whose mobject is taken off screen.
+
+        Manim mobjects persist once added until explicitly removed --
+        directly, or via a `remover`-flagged animation like `FadeOut`, which
+        routes through this same `Scene.remove` at the end of the animation
+        (see `Animation.clean_up_from_scene`). Overriding it here is what
+        lets `_snapshot_segment` know an id has actually left the scene,
+        instead of only ever recording an appearance for the single segment
+        `track()` happened to be called in.
+        """
+        super().remove(*mobjects)
+        for id in list(self._active_ids):
+            tracked = self._tracked_mobjects.get(id)
+            if any(_removal_covers(removed, tracked) for removed in mobjects):
+                self._active_ids.discard(id)
+
+    def assert_no_overlap_among_tracked(self) -> None:
+        """Check every currently-active, non-decorative tracked element pairwise for overlap.
+
+        Convenience wrapper around `layout.assert_no_overlap` that gathers
+        every id still active (tracked and not yet removed) instead of
+        requiring an explicit list. Call at the end of a segment, once all
+        of that segment's elements have been placed.
+
+        Ids tracked with `track(..., decorative=True)` are excluded from
+        both sides of the comparison -- see `track()`'s docstring for why.
+        """
+        checked_ids = (id for id in self._active_ids if not self._manifest[id]["decorative"])
+        assert_no_overlap(*(self._tracked_mobjects[id] for id in checked_ids))
+
+    def assert_reasonably_centered_among_tracked(self, tolerance: float | None = None) -> None:
+        """Check every currently-active tracked element, combined, for off-center composition.
+
+        Convenience wrapper around `layout.assert_reasonably_centered` that
+        gathers every id still active instead of requiring an explicit
+        list. Unlike `assert_no_overlap_among_tracked`, `decorative` ids are
+        *not* excluded here -- a decorative backdrop (a diagram, a guide
+        circle) still occupies real visual space and should count toward
+        whether the overall composition reads as centered.
+
+        Not called automatically by scaffolded segments -- call it
+        yourself for slides where centering matters (a title, a summary, a
+        boxed final result), not diagram-heavy segments that naturally sit
+        somewhat off from dead-center.
+        """
+        mobjects = (self._tracked_mobjects[id] for id in self._active_ids)
+        if tolerance is None:
+            assert_reasonably_centered(*mobjects)
+        else:
+            assert_reasonably_centered(*mobjects, tolerance=tolerance)
 
     def next_slide(self, *args: Any, **kwargs: Any) -> None:
         # Order is load-bearing: snapshot before advancing, since advancing
@@ -100,7 +188,8 @@ class Slide(_BaseSlide):
         super().next_slide(*args, **kwargs)
 
     def _snapshot_segment(self) -> None:
-        for id, mobj in self._pending_snapshot.items():
+        for id in self._active_ids:
+            mobj = self._tracked_mobjects[id]
             try:
                 bbox = _normalized_bbox(mobj)
             except Exception:
@@ -114,7 +203,6 @@ class Slide(_BaseSlide):
 
         self._segment_index += 1
         self._segment_tracked_ids.clear()
-        self._pending_snapshot.clear()
 
     def render(self, *args: Any, **kwargs: Any) -> Any:
         result = super().render(*args, **kwargs)
