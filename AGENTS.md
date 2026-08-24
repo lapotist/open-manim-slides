@@ -19,6 +19,12 @@ and full session-by-session history (decisions made, why, what's left).
 
 - **Read `HANDOFF.md` before doing anything else, if the session is new, or after /clear** It's the current
   status doc, not just an initial design record.
+  **Exception — a test run of a skill.** When the user invokes a skill and
+  calls it a test run, they are simulating a real invocation, and a real
+  user has installed this package to build something: they have no
+  `HANDOFF.md`, no `decks/`, no dev history. Loading any of it measures a
+  context that no real run would ever have. Read only what the skill
+  itself directs you to.
 - **Framework work can proceed autonomously; deck *content* can't** —
   fixing or authoring anything under `decks/`, curating examples, or
   designing the review site is reserved for explicit user direction. See
@@ -98,17 +104,29 @@ dependency `manimpango` to build (see `README.md`).
 - `src/open_manim_slides/convert.py` — the project's HTML export path,
   `convert_to_html(...)`, a drop-in replacement for the CLI conversion
   with two fixes:
-  - Workaround for an unmerged upstream manim-slides bug
-    ([PR #664](https://github.com/jeertmans/manim-slides/pull/664)):
-    enum-typed Reveal.js config options lose their quoting during pydantic
-    validation, producing invalid JS. Remove once the upstream PR merges.
-  - `snap_back_navigation` (default on): the upstream HTML export drops
-    the pre-rendered reversed videos its native presenter uses, and
-    reveal.js restarts a background video from 0 whenever its slide
-    becomes current — so backward navigation replays the whole segment
-    animation. The injected script snaps backward navigation to the
-    segment's final frame instead. See the long comment above
-    `_SNAP_BACK_NAVIGATION_SCRIPT` for the full mechanism.
+  - Workaround for a merged-but-unreleased upstream manim-slides bug
+    ([PR #664](https://github.com/jeertmans/manim-slides/pull/664),
+    merged 2026-08-20): enum-typed Reveal.js config options lose their
+    quoting during pydantic validation, producing invalid JS. Remove once
+    this project's manim-slides floor moves past whichever release first
+    ships the fix — not yet out as of 5.6.0 (2026-04-15, predates the
+    merge).
+  - `instant_navigation` (default on): reveal.js restarts a background
+    video from 0 whenever its slide becomes current, in *either*
+    direction, because the HTML export drops the pre-rendered reversed
+    videos its native presenter uses. Two symptoms, one cause: backward
+    navigation replays the whole segment animation, and forward
+    re-entry into a segment left parked at its end flashes that ending —
+    the spoiler — until the seek back to 0 repaints. **The invariant the
+    injected script keeps: never seek a video that is on screen.** Each
+    one is parked, while hidden, at the pose it will next be entered with
+    (left going forward → parked at its end; left going backward → parked
+    at 0), so entering needs no seek in either direction. See the long
+    comment above `_INSTANT_NAVIGATION_SCRIPT` — it records which
+    alternatives were measured and rejected, because the obvious
+    simplifications of this script are the two bugs.
+    Verify with `playback.py` below; do not "clean it up" without
+    re-running that.
 - `src/open_manim_slides/scaffold.py` — deterministic deck-file generator,
   not agent-authored: given a title, segment list, and optional
   `audience` ("middle-school"/"high-school", emitted as a module-level
@@ -128,6 +146,89 @@ dependency `manimpango` to build (see `README.md`).
   state for videos longer than manim-slides'
   `max_duration_before_split_reverse` (4 s) — see the module docstring.
   Powers the `create-deck` skill's look-at-the-frames review step.
+- `src/open_manim_slides/progress.py` — phase timer and time budget for a
+  deck build (`python -m open_manim_slides.progress start|phase|report
+  <Deck> [budget]`, state in `media/progress/<Deck>.json`). Wall clock
+  between phase calls includes the agent's own thinking, so this measures
+  what render timings never could: drafting and code writing are most of
+  a run's cost and were previously invisible. With a budget it judges
+  drift at each boundary and says what to cut, scoped to the phase being
+  entered. Two decisions worth keeping: drift is judged at the moment a
+  phase *starts*, not live, because time spent inside a phase is that
+  phase's own allocation and comparing live elapsed against
+  expected-at-entry flags every run as behind the moment it starts work
+  (budget *exhaustion* is still judged live); and the status line is only
+  computed here, never displayed — a command's stdout goes to the agent,
+  not reliably to the user's terminal, so `SKILL.md` requires the agent to
+  relay the line in its own visible reply.
+- `src/open_manim_slides/validate.py` — headless layout validation
+  (`python -m open_manim_slides.validate decks/<slug>.py [ClassName]`):
+  runs `construct()` and every check (safe frame, overlap, centering,
+  duplicate ids) without rendering a frame — ~2 s versus ~9 s for a `-ql`
+  render, and it reports **every** failing segment where a render aborts
+  at the first. Two substitutions make it work: `play()` applies each
+  animation's end state instantly (begin → interpolate(1) → finish →
+  clean up) then ticks scene updaters once, because `always_redraw`
+  mobjects only regenerate on a tick and a later segment reading their
+  geometry would see a stale pose; and `next_slide()` only snapshots the
+  segment, skipping manim-slides' file bookkeeping (which needs rendered
+  video), while keeping the segment-index advance that makes duplicate-id
+  detection work. Each `segment_*` method is wrapped so a failure is
+  recorded and the run continues. It also reports `IllegibleTextMorph` —
+  a plain `Transform` between two different multi-glyph strings, which
+  interpolates glyph *outlines* and so spends most of the play as
+  unreadable shapes. That one is uniquely invisible to the frame review
+  (the final frame is the one moment nothing is moving), which is exactly
+  why it belongs in a mechanical gate. Smallness is judged by counting
+  drawable glyphs, not string length, because `tex_string` is LaTeX
+  source — `\tfrac12` is eight characters but one small fraction.
+  `FadeTransform`, `TransformMatchingTex`, `.animate`, and shape-to-shape
+  transforms are deliberately not flagged. It also reports
+  `ConflictingAnimations` — two animations in one `play()` whose mobject
+  *families* intersect, the classic case being `FadeOut(group)` alongside
+  `Transform(child_of_group, ...)`. Manim 0.20 can deadlock its encoder on
+  that: the render hangs at 0% CPU with no traceback and no further
+  partial movie files, so it reads as a slow render rather than a bug.
+  The harness cannot reproduce the hang (it applies animations one at a
+  time), which is exactly why the check is structural rather than
+  behavioural. Failures downstream of another are
+  flagged, matched on the *coordinates* in the message rather than its
+  wording, since `assert_no_overlap` names whichever of a pair it reaches
+  first. Manim's own `--dry_run` is not a substitute: it crashes under
+  manim-slides (`scene_file_writer` IndexError on the first `play()`).
+- `src/open_manim_slides/blankspace.py` — dead-space detector
+  (`python -m open_manim_slides.blankspace <SceneName>`): reduces the
+  `seg-NN-final.png` stills `frames.py` writes to a 16x9 occupancy grid
+  over the safe frame, reports per-segment fill % and — the point — any
+  region **no segment ever uses**, with an ASCII map. Three choices are
+  load-bearing: it measures *pixels*, not the manifest's bboxes (a bbox
+  overstates coverage — a triangle's bbox claims its empty corners — so
+  bbox-based emptiness would under-report exactly what's worth finding);
+  it aggregates *across* segments (space that fills up later was
+  reserved, not wasted, and only a never-reached cell is dead); and it
+  crops the safe margin (which is supposed to be empty). Thresholds bias
+  toward under-reporting, so a region it calls dead is genuinely
+  untouched. Answers the `create-deck` review's Q2 mechanically instead
+  of by eye.
+- `src/open_manim_slides/playback.py` — navigation check for an exported
+  deck, driven through real headless Firefox
+  (`python -m open_manim_slides.playback <exported.html>`; stdlib-only —
+  it speaks WebDriver BiDi over a ~90-line WebSocket client, so there is
+  no new dependency and no Node). It walks the deck with the arrow keys
+  and reports any navigation where the viewer would see the wrong frame.
+  Why it exists: this class of bug is invisible to every other check here
+  — the deck renders correctly and every frame is right; what is wrong is
+  *which already-decoded frame the compositor is still showing* when a
+  slide becomes current. `currentTime` cannot see it (it updates
+  synchronously while the old frame is still presented — that gap is the
+  flash), so the check reads `requestVideoFrameCallback`'s `mediaTime`,
+  i.e. the frames actually presented. It asserts the *pose* (0 going
+  forward, final frame going backward) and never the timing: the
+  magnitude is environment-specific (a stale frame standing 37 ms under
+  headless software compositing stood ~400 ms on a GPU-composited
+  desktop) while the wrong-pose condition is not. Runs on `pytest`
+  (~11 s, skipped without Firefox) and never during a deck build — it
+  checks the finished artifact, it is not a step in producing one.
 - `src/open_manim_slides/webrunner/` — optional local web UI
   (`pip install -e ".[web]"`, then `./run-webrunner.sh`): lists decks
   under `decks/`, renders one on click with a live progress bar (parsed
@@ -160,9 +261,18 @@ content, not curated public examples yet (see `HANDOFF.md`).
   segment at target quality, annotated by *move*), `motion-recipes.md`
   (verified animation snippets, gotcha-first), `framework-rules.md`
   (tracking/check mechanics, narrowed `decorative=True` criteria).
+  Calling a run a "test run" suppresses reading other `decks/` files as
+  reference, so the run measures the skill's own written guidance.
 
 ## Testing
 
 ```bash
 pytest
 ```
+
+Includes one end-to-end browser test (`tests/test_playback.py`, ~11 s)
+that walks a real exported deck in headless Firefox and fails if any
+navigation shows the viewer the wrong frame. It skips when Firefox is
+absent rather than failing, so **a green suite on a machine without
+Firefox has not checked navigation** — run it somewhere that has one
+before trusting a change to `convert.py`'s injected script.
