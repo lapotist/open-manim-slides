@@ -1,4 +1,4 @@
-"""Workaround for an unmerged upstream manim-slides bug (PR #664).
+"""Workaround for a merged-but-unreleased upstream manim-slides bug (PR #664).
 
 `RevealJS`/`HtmlZip`'s HTML config options that are backed by a
 `(Str, StrEnum)` type -- `transition`, `controls_layout`, `slide_number`,
@@ -31,9 +31,10 @@ schema from the (now patched) field-level hooks; doing both, in that order,
 is what actually fixes it (verified empirically against the installed
 manim-slides 5.6.0).
 
-Remove this module once
-https://github.com/jeertmans/manim-slides/pull/664 merges and this
-project's manim-slides floor moves past that release.
+PR #664 merged upstream 2026-08-20. Not yet in a release as of this
+writing -- PyPI's latest is manim-slides 5.6.0 (2026-04-15, predates the
+merge). Remove this module once this project's manim-slides floor moves
+past whichever release first includes the fix.
 """
 
 from __future__ import annotations
@@ -57,62 +58,150 @@ def _patch_str_quoting() -> None:
 _patch_str_quoting()
 
 
-# Injected into the exported HTML (see convert_to_html's snap_back_navigation
-# parameter). Both halves of the problem it fixes were confirmed against real
-# sources/behavior, not assumed:
+# Injected into the exported HTML (see convert_to_html's instant_navigation
+# parameter). Every claim below was read off the real sources, not assumed.
 #
-# - manim-slides pre-renders a reversed video per segment (config.py's
-#   SlideConfig.rev_file) and its native Qt presenter uses it for backward
-#   navigation, but the HTML exporter explicitly excludes it
-#   (convert.py: `copy_to(..., include_reversed=False)`), and the Reveal.js
-#   template only ever references the forward file.
-# - reveal.js (6.0.1, js/controllers/slidecontent.js `startEmbeddedMedia`)
-#   restarts a background video from `currentTime = 0` every time its slide
-#   becomes current again, in either direction.
+# reveal.js 6.0.1 (js/controllers/slidecontent.js, `startEmbeddedMedia`)
+# restarts a background video from `currentTime = 0` every time its slide
+# becomes current, in *either* direction, because manim-slides' HTML export
+# drops the pre-rendered reversed videos its native Qt presenter uses for
+# backward navigation (convert.py: `copy_to(..., include_reversed=False)`)
+# and the Reveal template only ever references the forward file.
 #
-# Net effect: pressing "previous" replays the target segment's entire
-# construction animation instead of showing its finished state -- and a
-# screen-recording diagnosis (2026-08-12) showed Firefox additionally
-# stalling frame presentation for ~1-1.5s mid-replay under rapid
-# back-and-forth navigation, which reads as "stuck on a middle state, then
-# jumps to the end". Snapping backward navigation to the video's last frame
-# matches the native presenter's semantics and removes the replay churn that
-# triggers the stall. A deliberate replay (the template's SPACE binding)
-# still works: play() on an ended video restarts it from the beginning.
-_SNAP_BACK_NAVIGATION_SCRIPT = """\
+# That one behavior produces two symptoms that look unrelated and are not:
+#
+#   * Backward: the segment replays its entire construction animation
+#     instead of showing the finished state the viewer just watched.
+#   * Forward: re-entering a segment whose video was left parked at its end
+#     shows that end frame -- the spoiler, the whole point of the build-up --
+#     until the seek back to 0 is decoded and painted.
+#
+# The second symptom is what an earlier, narrower version of this script
+# (which seeked the *entering* video to its end on backward navigation)
+# traded the first one for: parking videos at their end is exactly what
+# makes the next forward entry flash. Both are the same underlying cost --
+# seeking a video that is already on screen does not repaint it until the
+# new frame is decoded, and until then the compositor keeps showing the old
+# one. Measured in headless Firefox 153 that stale frame stands for 37 ms;
+# on a GPU-composited desktop Firefox a screen recording showed ~400 ms.
+#
+# So this script never seeks a visible video. Instead each video is parked,
+# while it is off screen, at the pose it will next be entered with:
+#
+#   * a slide left going forward is next seen going *backward*, so it is
+#     parked at its final frame;
+#   * a slide left going backward is next seen going *forward*, so it is
+#     parked at 0.
+#
+# Entering a slide then requires no seek at all, in either direction, and
+# the frame already on screen is the right one.
+#
+# Two details are load-bearing. `slidechanged` fires *before* Reveal's own
+# `startEmbeddedContent`/`backgrounds.update()` in the same synchronous
+# `slide()` call, which is the window this script uses to stop the reset
+# from happening at all: `startEmbeddedMedia` resets only a video that
+# reads as `paused || ended`, so shadowing those two properties with own
+# accessors for the rest of that call makes it skip the video entirely,
+# then they are deleted and the real prototype getters are back.
+#
+# Shadowing is used rather than the more obvious trick of calling `play()`
+# first (a playing video is also left alone) because a segment that ran to
+# completion *is* `ended`, and `play()` on an ended element seeks back to
+# the start per the HTML spec -- which is the flash this removes. That
+# version was written, measured, and rejected: it left two of three
+# backward entries painting frame 0. For the same reason videos are parked
+# at `duration - EPSILON`, and parking always seeks an `ended` video even
+# when it already sits at the right position.
+_INSTANT_NAVIGATION_SCRIPT = """\
     <script>
-      // open-manim-slides: snap backward navigation to the segment's final
-      // frame instead of replaying its whole construction animation.
+      // open-manim-slides: navigation shows each segment's correct frame
+      // immediately, in both directions, by never seeking a visible video.
       (() => {
-        let last = null;
-        Reveal.on('ready', (event) => {
-          last = { h: event.indexh, v: event.indexv || 0 };
-        });
-        Reveal.on('slidechanged', (event) => {
-          const cur = { h: event.indexh, v: event.indexv || 0 };
-          const backward = last !== null &&
-            (cur.h < last.h || (cur.h === last.h && cur.v < last.v));
-          last = cur;
-          if (!backward) return;
-          const content = event.currentSlide.slideBackgroundContentElement;
-          const video = content && content.querySelector('video');
-          if (!video) return;
-          // Reveal restarts this video (currentTime = 0, play()) *after*
-          // 'slidechanged', later in the same synchronous slide() call --
-          // snap on a 0ms timer so it runs after that, and guard against
-          // the restart being deferred to 'loadeddata' (which happens when
-          // the element is still mid-seek and readyState has dropped).
+        // Small enough to stay inside the final frame at any realistic
+        // frame rate (a frame is 16.7 ms at 60 fps, 66 ms at manim's -ql
+        // 15 fps), but enough that the element is not `ended`.
+        const EPSILON = 0.01;
+
+        const videoOf = (slide) => {
+          const content = slide && slide.slideBackgroundContentElement;
+          return (content && content.querySelector('video')) || null;
+        };
+        const endPose = (video) => Math.max(0, video.duration - EPSILON);
+        const park = (video, time) => {
+          if (!video || !isFinite(video.duration)) return;
+          video.pause();
+          // `ended` is re-seeked away from even when the position already
+          // looks right: it is the state that makes a later play() jump
+          // back to the start.
+          if (video.ended || Math.abs(video.currentTime - time) > 0.001) {
+            video.currentTime = time;
+          }
+        };
+        // Make Reveal's `paused || ended` test read false for the rest of
+        // this synchronous slide() call, so it leaves the video alone.
+        const shieldFromReset = (video) => {
+          const alwaysFalse = { configurable: true, get: () => false };
+          Object.defineProperty(video, 'paused', alwaysFalse);
+          Object.defineProperty(video, 'ended', alwaysFalse);
           setTimeout(() => {
-            const snap = () => {
-              video.pause();
-              if (video.duration) video.currentTime = video.duration;
-            };
-            snap();
-            video.addEventListener('play', snap, { once: true });
-            // Let a deliberate replay (SPACE) win again shortly after.
-            setTimeout(() => video.removeEventListener('play', snap), 200);
+            delete video.paused;
+            delete video.ended;
           }, 0);
+        };
+
+        let previous = null;
+
+        Reveal.on('ready', (event) => {
+          previous = { h: event.indexh, v: event.indexv || 0 };
         });
+
+        Reveal.on('slidechanged', (event) => {
+          const current = { h: event.indexh, v: event.indexv || 0 };
+          const backward = previous !== null &&
+            (current.h < previous.h ||
+             (current.h === previous.h && current.v < previous.v));
+          previous = current;
+
+          const entering = videoOf(event.currentSlide);
+          if (backward && entering && isFinite(entering.duration)) {
+            // Reveal is about to reset this video, later in this same
+            // synchronous slide() call; stop it from seeing a resettable
+            // video. The seek is a safety net for a slide reached without
+            // having been parked (a jump, or a first-ever visit) -- in the
+            // ordinary case the pose is already right and nothing seeks,
+            // which is the whole point.
+            if (entering.ended ||
+                Math.abs(entering.currentTime - endPose(entering)) > 0.25) {
+              entering.currentTime = endPose(entering);
+            }
+            shieldFromReset(entering);
+          }
+
+          // Park the slide just left for its next entry, now that it is
+          // hidden and a seek costs nothing visible.
+          const leaving = videoOf(event.previousSlide);
+          if (leaving) {
+            setTimeout(() => park(leaving, backward ? 0 : endPose(leaving)), 0);
+          }
+        });
+
+        // The export template binds SPACE to play/pause. Re-register it
+        // (a later addKeyBinding for the same keyCode replaces the earlier
+        // one) so that a deliberate replay still works: videos now rest one
+        // EPSILON short of `ended`, where a bare play() would only finish
+        // that sliver instead of restarting from the beginning.
+        Reveal.addKeyBinding(
+          { keyCode: 32, key: 'SPACE', description: 'Play / pause video' },
+          () => {
+            const video = videoOf(Reveal.getCurrentSlide());
+            if (!video) { Reveal.next(); return; }
+            if (!video.paused) { video.pause(); return; }
+            if (video.currentTime >= endPose(video) - EPSILON) {
+              video.currentTime = 0;
+            }
+            video.play();
+          }
+        );
       })();
     </script>
 """
@@ -124,7 +213,7 @@ def convert_to_html(
     folder: Path = Path("./slides"),
     *,
     zip: bool = False,
-    snap_back_navigation: bool = True,
+    instant_navigation: bool = True,
     **config_options: Any,
 ) -> Path:
     """Convert rendered scenes to a Reveal.js HTML deck (or a `.zip` of one).
@@ -139,10 +228,12 @@ def convert_to_html(
     would take -- this function's import-time patch is what makes that
     string get validated correctly instead of the CLI's broken path.
 
-    `snap_back_navigation` (default on, `.html` output only) injects the
-    script documented above `_SNAP_BACK_NAVIGATION_SCRIPT`: backward
-    navigation shows the previous segment's finished state immediately
-    instead of replaying its whole construction animation.
+    `instant_navigation` (default on, `.html` output only) injects the
+    script documented above `_INSTANT_NAVIGATION_SCRIPT`: moving between
+    segments shows the right frame immediately in both directions, instead
+    of replaying a finished segment on the way back or flashing a segment's
+    end state on the way in. Verify it against a real browser with
+    `python -m open_manim_slides.playback <exported.html>`.
     """
     from manim_slides.convert import HtmlZip, RevealJS
     from manim_slides.present import get_scenes_presentation_config
@@ -152,8 +243,8 @@ def convert_to_html(
     converter = cls(presentation_configs=presentation_configs, **config_options)
     converter.convert_to(dest)
 
-    if snap_back_navigation and not zip:
+    if instant_navigation and not zip:
         html = dest.read_text()
-        dest.write_text(html.replace("</body>", _SNAP_BACK_NAVIGATION_SCRIPT + "</body>"))
+        dest.write_text(html.replace("</body>", _INSTANT_NAVIGATION_SCRIPT + "</body>"))
 
     return dest

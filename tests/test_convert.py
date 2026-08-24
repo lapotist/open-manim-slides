@@ -6,8 +6,9 @@ expensive part), then converted per-test to cover:
 - the PR #664 workaround: an enum-typed config option (`transition="fade"`)
   must come out quoted, valid JS, rather than reproducing the upstream bug
   (bare identifier that throws at slide-init time and blanks the page);
-- the snap-back-navigation script: injected by default, absent when opted
-  out.
+- the instant-navigation script: injected by default, absent when opted
+  out, and syntactically valid JS (it is inlined verbatim, so a syntax
+  error would blank the exported page with nothing surfaced anywhere).
 """
 
 import pytest
@@ -67,22 +68,25 @@ def test_convert_to_html_quotes_enum_config_options(rendered_slides_dir, tmp_pat
     assert "controlsLayout: 'bottom-right'," in html
 
 
-def test_convert_to_html_injects_snap_back_navigation_by_default(
+_MARKER = "open-manim-slides: navigation shows each segment's correct frame"
+
+
+def test_convert_to_html_injects_instant_navigation_by_default(
     rendered_slides_dir, tmp_path
 ):
     dest = tmp_path / "out.html"
     convert_to_html(["_ConvertSmokeDeck"], dest, folder=rendered_slides_dir)
 
     html = dest.read_text()
-    assert "snap backward navigation" in html
+    assert _MARKER in html
     # Injected inside the document, not appended after it.
-    assert html.index("snap backward navigation") < html.index("</body>")
+    assert html.index(_MARKER) < html.index("</body>")
 
 
-def test_convert_to_html_snap_back_navigation_opt_out(rendered_slides_dir, tmp_path):
+def test_convert_to_html_instant_navigation_opt_out(rendered_slides_dir, tmp_path):
     dest = tmp_path / "out.html"
     convert_to_html(
-        ["_ConvertSmokeDeck"], dest, folder=rendered_slides_dir, snap_back_navigation=False
+        ["_ConvertSmokeDeck"], dest, folder=rendered_slides_dir, instant_navigation=False
     )
 
-    assert "snap backward navigation" not in dest.read_text()
+    assert _MARKER not in dest.read_text()
