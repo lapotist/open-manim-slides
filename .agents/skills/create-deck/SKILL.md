@@ -18,6 +18,16 @@ References (in this skill's `references/` directory):
 - `framework-rules.md` — tracking/check mechanics. **Read it whenever an
   `assert_*` raises, before changing any code.**
 
+**If the user calls this a test run**, build from these references and the
+framework's own API surface (`theme.py`, `base.py`, `layout.py`) only.
+Do **not** read other files under `decks/`, and do **not** read this
+repo's development docs (`HANDOFF.md`, session history). A test run
+simulates a real invocation — and someone who installed this package to
+build a deck has none of that: no example decks, no handoff notes, no dev
+history. Reading them measures a context no real run would have, hides the
+gaps in this skill's own written guidance, and biases the output toward
+copying an existing deck instead of reasoning from the rules.
+
 ## The seven rules
 
 Every segment is written against these. Each has a mechanical check —
@@ -89,6 +99,43 @@ From the user's request (ask if missing):
 | `self.play()` per segment (R5) | ≤ 4 | ≤ 6 |
 | opening segment | a visual situation before any symbol | may open with the statement |
 
+- **Time budget** — optional, e.g. "20 minutes", "quick". If the user
+  gives one, pass it to the tracker below and scale the work to fit; if
+  they don't, track time anyway and don't cut anything.
+
+### Start the tracker, and report progress as you go
+
+```bash
+python -m open_manim_slides.progress start <ClassName> [budget]   # e.g. 20m
+```
+
+Then at **every** phase boundary — `scaffold`, `code`, `validate`,
+`render`, `review`, `finish`:
+
+```bash
+python -m open_manim_slides.progress phase <ClassName> <phase>
+```
+
+**Paste the line it prints into your reply to the user.** A command's
+output goes to you, not reliably to their terminal, so relaying it is the
+only thing that makes it a status update — and going silent through a
+long build is the specific complaint this exists to fix. One line per
+boundary, nothing more.
+
+The tracker judges drift at each boundary and prints `BEHIND` with what
+to cut, or `OVER` when the budget is spent. **Follow that advice** — it
+is scoped to the phase you are entering. Budget shapes the plan up front
+too:
+
+| budget | segments | review | render |
+|---|---|---|---|
+| ≤ 10 min | audience minimum (5 / 7) | one round, final frames only, no re-review | `-ql`; full-quality only if time is left |
+| 10–25 min | normal for the audience | one round + re-review of edited segments | `-ql`, then full-quality |
+| > 25 min or unset | normal | full round + re-review | `-ql`, then full-quality |
+
+Finish with `python -m open_manim_slides.progress report <ClassName>` and
+include the breakdown in your closing message.
+
 ## 2. Plan before code — the segment table
 
 Read `references/exemplar.md` now. Then produce this table, one row per
@@ -102,6 +149,31 @@ than 2 rows, the deck is a slideshow — redesign the outline so segments
 build on each other. If a "change animation" cell names `Transform`,
 `ValueTracker`, `MoveAlongPath`, `Axes`, or `Brace`, read
 `references/motion-recipes.md` before writing that segment.
+
+### Commit to one composition, for the whole deck
+
+Decide *now* where things live, and hold it in every segment. Deciding
+per-segment is what produces a deck with a figure adrift in the middle
+and a third of the frame no segment ever touches.
+
+The frame is 14.2 × 8 units; the safe area inside the margin is about
+13.2 × 7, and a heading eats the top ~1. Default composition:
+
+- **Left column** (x ≈ −6.3 … 0) — the figure. Size it to *fill* that
+  column: roughly 5-6 units wide. A 2-3 unit diagram in a 6-unit column
+  is the single most common cause of an empty-looking deck.
+- **Right column** (x ≈ 0.3 … 6.3) — the accumulating text: equations,
+  results, the running reference. Anchor the first line near the top and
+  grow *downward*, so the space beneath it is visibly reserved for later
+  segments rather than left over.
+- Set module constants for the column centers and the first line's
+  height, and position against those — never a fresh literal per segment.
+
+Deviate when the content demands it (a full-width title, a summary that
+centers), but decide that here, not while debugging a layout.
+
+Targets, checked mechanically in step 6: **every segment ≥ 20% fill, no
+region ≥ 15% of the frame left unused by the whole deck.**
 
 ## 3. Scaffold (deterministic, not freehand)
 
@@ -144,23 +216,66 @@ Mechanics: `track()` every meaningful element; `assert_within_safe_frame`
 before animating in; theme tokens (`FONT_SIZE_*`, `SPACING_*`,
 `COLOR_*`) over literal numbers. Full rules: `references/framework-rules.md`.
 
-## 5. Render and look at what you made
+## 5. Check the math before you render it
+
+```bash
+python -m open_manim_slides.validate decks/<slug>.py
+```
+
+Runs every segment's construction and every mechanical check — safe
+frame, overlap, centering, duplicate ids, illegible text morphs
+(`Transform` between two sentences, which spends most of the play as
+unreadable glyph soup), and conflicting animations (two animations in one
+`play()` driving the same mobject) — **without rendering a frame**. Two
+seconds instead of ten, and it reports *every* broken segment at once
+where a render aborts at the first.
+
+`ConflictingAnimations` is worth fixing the moment it appears: manim can
+**deadlock** on it, hanging the render with no traceback and no partial
+output, which reads as a slow render rather than a bug.
+
+`IllegibleTextMorph` is the one finding here that no amount of looking at
+final frames would catch, because the final frame is the one moment
+nothing is moving. Fix it with `FadeTransform` (re-tracking the id — it
+replaces the mobject rather than mutating it) or `TransformMatchingTex`
+for `MathTex`; see `references/motion-recipes.md`.
+
+**Fix everything it lists, re-run until it prints `layout OK`, and only
+then render.** Rendering to discover a placement error is the slowest
+possible way to do arithmetic: the failures are all "this brace overhangs
+the edge" and "these two boxes land on each other", and finding five of
+them one render at a time is most of a wasted half hour.
+
+Failures marked `likely a cascade` come from state an earlier failing
+segment never set, or from an element it left in a bad place — fix the
+first one and re-run before touching them.
+
+## 6. Render and look at what you made
 
 Iterate at low quality; full quality only once the deck passes review:
 
+One command block, not three round-trips — and keep the render quiet, it
+prints a progress bar per animation that buries anything useful:
+
 ```bash
-manim render -ql decks/<slug>.py <ClassName>
-python -m open_manim_slides.frames <ClassName>
+manim render -ql decks/<slug>.py <ClassName> 2>&1 | tail -3
+python -m open_manim_slides.frames <ClassName> > /dev/null
+python -m open_manim_slides.blankspace <ClassName>
 ```
 
-The second command writes, per segment, a final-frame PNG and a 6-tile
-contact sheet under `media/review/<ClassName>/`. **Read every image.**
+`frames` writes, per segment, a final-frame PNG and a 6-tile contact
+sheet under `media/review/<ClassName>/`. **Read every image — all of
+them in one batch, not one per turn.** `blankspace` measures those same
+stills and prints per-segment fill percentages plus any region **no
+segment ever uses** — do not eyeball emptiness, read its numbers.
+
 For each segment fill this table — closed answers only:
 
-| # | Q1 eye lands on subject? | Q2 empty region ≥ ⅓ frame? | Q3 elements touching? | Q4 words on screen | Q5 element restating another? | Q6 diff vs previous final frame (≤ 10 words) |
+| # | Q1 eye lands on subject? | Q2 fill % (from blankspace) | Q3 elements touching? | Q4 words on screen | Q5 element restating another? | Q6 diff vs previous final frame (≤ 10 words) | Q7 every tile of the contact sheet legible? |
 
 - Q1: where does your eye land first — is it the segment's subject?
-- Q2: name the empty region (or "none").
+- Q2: copy the segment's fill % from `blankspace`. It also names that
+  segment's largest empty block; note it if ≥ 25%.
 - Q3: name the touching pair (or "no").
 - Q4: count words.
 - Q5: name the redundant pair — caption restating the equation, label
@@ -168,26 +283,67 @@ For each segment fill this table — closed answers only:
 - Q6: put this final frame beside the previous segment's. What changed?
   **If the answer is "the heading and one new element", the segment
   built on nothing — that's a design failure, not a polish issue.**
+- Q7: **the final frame is the one moment nothing is moving** — Q1-Q6
+  cannot see a defect that only exists mid-play. Open `seg-NN-sheet.png`
+  and read all six tiles. Name any tile where text is unreadable, or
+  answer "all legible".
+  The usual culprit: `Transform(old_text, new_text)` interpolates glyph
+  *outlines* between two strings that have no letter correspondence, so
+  a heading or caption swap spends most of a second as garbage
+  (`Ch⊃∂s A T'w? 3f£!vG`). Text→text swaps want `FadeTransform`; see
+  `motion-recipes.md`. Ignore `Write`'s partial strokes — that is the
+  animation working.
 
 Then two source greps per segment, because frames can't show them: the
 R2 animation list, and the R4 verb list against every on-screen string.
 
-**Fix a segment only if**: Q1 no · Q2 names a region · Q3 names a pair ·
-Q4 > 25 (18 middle-school) · Q5 names a pair · Q6 is heading-only · R2
-grep empty · R4 grep has an unperformed verb. **Nothing else. "Could be
-prettier" is not a reason.**
+**Fix a segment only if**: Q1 no · Q2 fill < 20% · Q3 names a pair ·
+Q4 > 25 (18 middle-school) · Q5 names a pair · Q6 is heading-only ·
+Q7 names a tile · R2 grep empty · R4 grep has an unperformed verb.
+**Nothing else. "Could be prettier" is not a reason.**
+
+**Then fix the deck-level layout if** `blankspace` reports a dead region
+≥ 15% of the frame. That space is not reserved for anything — every
+segment ran and none of them reached it. The fix is structural (enlarge
+the figure, rebalance the columns, move the running elements into it),
+never a nudge: a deck whose subject occupies half the frame reads as a
+diagram with slides built around it. Re-run `blankspace` after fixing and
+confirm the number moved.
+
+**Batch the fixes.** Collect every issue the round found, then apply them
+together — one edit per segment, in one turn — and re-validate and
+re-render once. Fixing one thing, re-rendering, fixing the next is the
+same trap step 5 exists to avoid, just later in the workflow.
 
 One full round; then re-review only the segments you edited. If the
 first round flags more than half the segments, stop — the outline is
 wrong; report which segments failed and why, and ask the user whether to
 restructure.
 
-## 6. Finish
+## 7. Finish
 
 Final full-quality render and confirm it completes without errors:
 
 ```bash
-manim render decks/<slug>.py <ClassName>
+manim render decks/<slug>.py <ClassName> 2>&1 | tail -3
 ```
 
 Tell the user it's ready, including your review table and what you fixed.
+
+## The shape of a good run
+
+Steps 1-7 done well is roughly a dozen turns, most of them batched. It is
+worth knowing what makes a run balloon to four times that, because none
+of it is the renderer — a full render of an 8-segment deck is ~9 seconds
+at `-ql`, and a whole run's machine time is under three minutes:
+
+- **Rendering to find layout errors.** Step 5 exists for this. Five
+  placement mistakes found one render at a time is five cycles for
+  arithmetic that validates in two seconds, all at once.
+- **Unbatched edits.** Adding an import in one turn and using it in the
+  next; fixing one review finding, re-rendering, fixing the next. Group
+  them.
+- **Dumping raw tool output.** `tail -100` on a render captures a hundred
+  lines of progress bars; `tail -3` carries the same signal.
+- **Re-reading files you just wrote.** Keep track of what you authored
+  instead of re-reading it to find an edit anchor.

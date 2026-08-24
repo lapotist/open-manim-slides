@@ -40,6 +40,42 @@ improvise the tricky calls.
 | `Arrow` | `GrowArrow` |
 | `Dot`, small marks | `FadeIn(m, shift=UP * 0.2)` or `GrowFromCenter` |
 
+## Swapping text: `FadeTransform`, never `Transform`
+
+Changing a heading or a caption from one string to another is the most
+common animation in a deck, and `Transform` is the wrong tool for it:
+
+```python
+self.play(Transform(self.head, new_head))   # BUG: ~1s of garbled glyphs
+self.play(FadeTransform(self.head, new_head))   # cross-dissolve, both legible
+```
+
+`Transform` interpolates glyph *outlines*. Between two strings with no
+letter correspondence ("Choose Two of Five" → "First, Then Second") the
+midpoint is unreadable mush — `Ch⊃∂s A T'w? 3f£!vG`. It never shows up in
+a final-frame review, because the final frame is the one moment nothing
+is moving; it is obvious in `seg-NN-sheet.png` (review Q7).
+
+**`FadeTransform` removes the source and adds the target**, like
+`TransformMatchingTex` and unlike `Transform` — so **re-track the id**:
+
+```python
+def _retitle(self, words: str) -> FadeTransform:
+    new = Text(words, font_size=FONT_SIZE_HEADING, color=COLOR_TEXT).move_to(self.head)
+    anim = FadeTransform(self.head, new)
+    self.head = self.track(new, id="heading")   # or it drops out of the checks
+    return anim
+```
+
+`Transform` stays correct for two mobjects of the *same kind*, where the
+interpolation is the point: rectangle → rectangle, `NumberLine` →
+`NumberLine`, a bar shrinking to half its width. For `MathTex` → `MathTex`
+prefer `TransformMatchingTex`, which glides the shared terms.
+
+One caption per segment, too: swapping the sentence twice inside one
+segment puts the replacement on screen for about a second, which is not
+long enough to read.
+
 ## 1. `.animate` — move/scale/recolor what's already there
 
 ```python
@@ -138,6 +174,49 @@ the eye without altering anything. Use them sparingly — and know that
 **they do not satisfy the something-must-change rule (R2)**. A segment
 whose only non-entrance animation is an `Indicate` is still a static
 slide with a twitch.
+
+## 10. `Angle` — picking the acute angle, not the reflex one
+
+```python
+Angle(Line(vertex, p1), Line(vertex, p2), radius=0.5)  # can sweep ~323 degrees instead of ~37
+```
+
+Gotcha: `Angle` doesn't reliably pick the small angle between two rays from a
+shared vertex -- depending on the rays' absolute orientation it can render
+the *reflex* angle instead, which shows up as a huge near-full-circle loop
+dominating the frame (caught in review-frame PNGs, not by any `assert_*` --
+it's one `decorative` composite id, so nothing else exists to collide
+with). If the two rays are known angles from the +x axis, build an `Arc`
+directly instead -- fully deterministic, no quadrant guessing:
+
+```python
+# ray_a is fixed at a known angle (e.g. an axis-aligned leg); ray_b's angle
+# from +x is computable (e.g. via atan2). The span between them is theta.
+theta_arc = Arc(radius=0.5, start_angle=ray_b_angle, angle=(ray_a_angle - ray_b_angle), arc_center=vertex)
+```
+
+## 11. Never drive one mobject with two animations in one play
+
+```python
+self.play(FadeOut(figure), Transform(figure_child, target))   # HANGS
+```
+
+If `figure_child` is inside `figure`, both animations own it, and manim
+0.20 can **deadlock the encoder** — the render stops with no traceback, no
+error, and no further partial movie files. It looks like a slow render
+until you notice the process is at 0% CPU.
+
+Take the mobject you are keeping out of the group first:
+
+```python
+figure.remove(keeper)
+self.play(FadeOut(figure), Transform(keeper, target))
+```
+
+`python -m open_manim_slides.validate` reports this as
+`ConflictingAnimations` before you ever render. It compares mobject
+*families*, so it still catches the case where the two arguments look
+unrelated.
 
 ## Out of scope
 
