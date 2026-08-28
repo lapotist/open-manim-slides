@@ -21,7 +21,13 @@ from typing import Any
 from manim import config
 from manim_slides import Slide as _BaseSlide
 
-from open_manim_slides.layout import assert_no_overlap, assert_reasonably_centered
+from open_manim_slides.layout import (
+    DEFAULT_INK_CLEARANCE,
+    assert_no_overlap,
+    assert_reasonably_centered,
+    find_text_over_ink,
+    text_content,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +76,15 @@ def _removal_covers(removed: Any, tracked: Any) -> bool:
         return tracked is removed or tracked in removed.get_family()
     except Exception:
         return tracked is removed
+
+
+def _text_parts(mobj: Any) -> Any:
+    """Every text mobject at or under `mobj`, without descending into glyphs."""
+    if text_content(mobj) is not None:
+        yield mobj
+        return
+    for child in getattr(mobj, "submobjects", ()):
+        yield from _text_parts(child)
 
 
 class Slide(_BaseSlide):
@@ -158,6 +173,42 @@ class Slide(_BaseSlide):
         """
         checked_ids = (id for id in self._active_ids if not self._manifest[id]["decorative"])
         assert_no_overlap(*(self._tracked_mobjects[id] for id in checked_ids))
+
+    def find_text_over_decorative(
+        self, clearance: float = DEFAULT_INK_CLEARANCE
+    ) -> list[tuple[str, str]]:
+        """Tracked text sitting on a tracked `decorative` element's strokes.
+
+        Returns `(text_id, decorative_id)` pairs; reports rather than raises,
+        because the caller (`validate.py`) lists every finding in one pass.
+
+        This is the one recurrence that no other check's scope spans:
+        `assert_no_overlap_among_tracked` drops `decorative` ids from *both*
+        sides, and `assert_within_safe_frame` only ever sees one element, so
+        a caption crossing an axis's tick numbers (session fourteen) or a
+        heading grazing a decorative square (session eight) passes
+        everything and is still wrong on screen.
+
+        Text is found by descending into tracked groups, since a caption is
+        as often a group's child as a tracked mobject in its own right.
+        """
+        texts: list[tuple[str, Any]] = []
+        decoratives: list[tuple[str, Any]] = []
+        for id in self._active_ids:
+            mobj = self._tracked_mobjects[id]
+            if self._manifest[id]["decorative"]:
+                decoratives.append((id, mobj))
+            else:
+                texts.extend((id, part) for part in _text_parts(mobj))
+
+        findings: list[tuple[str, str]] = []
+        for text_id, text in texts:
+            for decorative_id, decorative in decoratives:
+                if find_text_over_ink([text], [decorative], clearance=clearance):
+                    findings.append((text_id, decorative_id))
+        # One pair per id pair: a group with three labels on one axis is one
+        # placement mistake, not three.
+        return sorted(set(findings))
 
     def assert_reasonably_centered_among_tracked(self, tolerance: float | None = None) -> None:
         """Check every currently-active tracked element, combined, for off-center composition.

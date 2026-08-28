@@ -18,11 +18,22 @@ This runs the same `construct()` with two substitutions:
   drawn. Scene updaters are then run once, because `always_redraw`
   mobjects only regenerate when the scene ticks, and a later segment
   reading their geometry (`leg.get_start()`) would otherwise see a stale
-  pose.
+  pose. It also mirrors `Scene.compile_animation_data` in adding any
+  animated mobject that is not in the scene yet, so the harness's scene
+  graph is the one a real render would have -- every check that reads
+  `scene.mobjects` depends on that.
 - **`next_slide()` only snapshots the segment**, skipping manim-slides'
   file bookkeeping, which needs rendered video that does not exist here.
   The snapshot is kept because it advances the segment index and clears
   the per-segment id set, which is what makes duplicate-id detection work.
+
+Where a segment completes, the content rules that are countable are
+checked at its end: text landing on a `decorative` element's strokes, R2
+(something already on screen must change, per the deck's `AUDIENCE`), and
+R4 (prose promising an action nothing but text performs). They are floors
+rather than the rules themselves -- whether a change carries the idea is
+not countable -- and they are skipped on a segment that raised, where
+every count is a consequence of the traceback.
 
 Each `segment_*` method is wrapped so a failure is recorded and the run
 continues to the next segment. That is the point: one pass reports every
@@ -37,12 +48,16 @@ Usage: `python -m open_manim_slides.validate decks/<slug>.py [ClassName]`
 from __future__ import annotations
 
 import importlib.util
+import logging
 import re
 import sys
 import traceback
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+from open_manim_slides.layout import text_content
 
 
 class ValidateError(RuntimeError):
@@ -64,17 +79,18 @@ class Failure:
         return f"seg-{self.index:02d} {self.segment}: {self.error_type}: {self.message}{mark}"
 
 
-def _text_content(mobject: Any) -> str | None:
-    """The string a text mobject renders, or None if it isn't one.
-
-    `original_text` first: manim strips spaces out of `Text.text` for its
-    glyph mapping, which would render the message as 'CountingThings'.
-    """
-    for attr in ("original_text", "text", "tex_string"):
-        value = getattr(mobject, attr, None)
-        if isinstance(value, str):
-            return value
-    return None
+#: Verbs that promise a motion. R4 ("if you write it, show it") is about
+#: exactly these: a slide that says "rotates" and never rotates anything is
+#: making a promise it doesn't keep.
+_ACTION_VERBS = frozenset(
+    "rotate rotates rotating turn turns turning move moves moving slide slides "
+    "sliding grow grows growing shrink shrinks shrinking add adds adding double "
+    "doubles doubling halve halves halving fold folds folding flip flips flipping "
+    "sweep sweeps sweeping split splits splitting combine combines combining "
+    "rearrange rearranges rearranging fill fills filling cover covers covering "
+    "trace traces tracing increase increases increasing decrease decreases "
+    "decreasing cancel cancels cancelling balance balances balancing".split()
+)
 
 
 def _glyph_count(mobject: Any) -> int:
@@ -123,8 +139,8 @@ def _text_morphs(animation: Any) -> list[tuple[str, str]]:
     if not isinstance(animation, Transform) or isinstance(animation, FadeTransform):
         return []
     target_mobject = getattr(animation, "target_mobject", None)
-    source = _text_content(animation.mobject)
-    target = _text_content(target_mobject)
+    source = text_content(animation.mobject)
+    target = text_content(target_mobject)
     if source is None or target is None or source == target:
         return []
     if max(_glyph_count(animation.mobject), _glyph_count(target_mobject)) <= _MORPH_GLYPH_ALLOWANCE:
@@ -163,7 +179,120 @@ def _conflicting_pairs(animations: list[Any]) -> list[tuple[str, str]]:
     return clashes
 
 
-def _instant_play(scene: Any, on_text_morph: Any = None, on_conflict: Any = None) -> Any:
+@lru_cache(maxsize=1)
+def _animation_types() -> tuple[tuple[type, ...], tuple[type, ...]]:
+    """(emphasis, change) animation classes, resolved against installed manim.
+
+    Both lists are needed *by class*, not by name, and the emphasis one is
+    load-bearing: `Indicate` is a `Transform` subclass and `Circumscribe` and
+    `Flash` are `AnimationGroup`s, so without an explicit exclusion R2 would
+    accept a pulse or a halo as the segment's change -- the exact thing R2
+    says doesn't count.
+    """
+    import manim
+
+    def resolve(names: tuple[str, ...]) -> tuple[type, ...]:
+        return tuple(getattr(manim, name) for name in names if hasattr(manim, name))
+
+    emphasis = resolve(
+        ("Indicate", "Flash", "Circumscribe", "Wiggle", "FocusOn", "ApplyWave", "ShowPassingFlash")
+    )
+    change = resolve(("Transform", "MoveAlongPath", "Homotopy", "ChangingDecimal"))
+    return emphasis, change
+
+
+def _change_animations(animation: Any, on_screen: set[int]) -> list[Any]:
+    """The animations in `animation` that alter something already on screen.
+
+    R2's own definition, made countable: entrances don't count
+    (`is_introducer`), the clearing fade doesn't count (`remover`, which is
+    what `FadeOut` sets), emphasis doesn't count (excluded by class, before
+    descending -- see `_animation_types`), and neither does animating in a
+    mobject that wasn't on screen to begin with, however it is animated.
+    """
+    emphasis, change = _animation_types()
+    if isinstance(animation, emphasis):
+        return []
+    nested = getattr(animation, "animations", None)
+    if nested:
+        return [found for child in nested for found in _change_animations(child, on_screen)]
+    if not isinstance(animation, change):
+        return []
+    if animation.is_introducer() or getattr(animation, "remover", False):
+        return []
+    target = getattr(animation, "mobject", None)
+    if target is None:
+        return []
+    try:
+        family = target.get_family()
+    except Exception:  # noqa: BLE001 - an animation without a family can't be a change
+        return []
+    return [animation] if any(id(part) in on_screen for part in family) else []
+
+
+def _on_screen_prose(scene: Any) -> list[str]:
+    """Every prose string currently on screen.
+
+    `MathTex`/`Tex` are skipped: R4 scans sentences, and `\\Rightarrow` is
+    not a promise to animate a rotation.
+    """
+    found: list[str] = []
+
+    def walk(mobject: Any) -> None:
+        content = text_content(mobject)
+        if content is not None:
+            if getattr(mobject, "tex_string", None) is None:
+                found.append(content)
+            return
+        for child in getattr(mobject, "submobjects", ()):
+            walk(child)
+
+    for mobject in scene.mobjects:
+        walk(mobject)
+    return found
+
+
+def _unperformed_verbs(scene: Any) -> list[str]:
+    """Action verbs written on screen with no figure animated to match.
+
+    Blind spot worth knowing: a `Transform` between two strings morphs
+    glyph outlines and leaves `original_text` reading the *old* string, so
+    a promise introduced that way is invisible here. That same animation is
+    reported as an `IllegibleTextMorph`, so it should not survive to be
+    read anyway.
+    """
+    words = {
+        word
+        for line in _on_screen_prose(scene)
+        for word in re.findall(r"[a-z']+", line.lower())
+    }
+    return sorted(words & _ACTION_VERBS)
+
+
+def deck_audience(scene_class: type) -> str | None:
+    """The deck file's `AUDIENCE` constant, or None if it declares none.
+
+    `scaffold.py` has always written this and nothing has ever read it, so
+    the per-audience ceilings lived only in the agent's memory of a table
+    read dozens of turns earlier. This is where they become a check.
+    """
+    module = sys.modules.get(getattr(scene_class, "__module__", ""))
+    audience = getattr(module, "AUDIENCE", None)
+    return audience if isinstance(audience, str) else None
+
+
+#: Change animations R2 demands per segment, per audience. Middle school
+#: needs two because for that audience the picture *is* the argument.
+MIN_CHANGES = {"middle-school": 2}
+DEFAULT_MIN_CHANGES = 1
+
+
+def _instant_play(
+    scene: Any,
+    on_text_morph: Any = None,
+    on_conflict: Any = None,
+    on_play: Any = None,
+) -> Any:
     """A `play()` that jumps straight to each animation's final state."""
     from manim.animation.animation import prepare_animation
 
@@ -172,10 +301,25 @@ def _instant_play(scene: Any, on_text_morph: Any = None, on_conflict: Any = None
         if on_conflict is not None:
             for first, second in _conflicting_pairs(prepared):
                 on_conflict(first, second)
+        # Captured before anything is added, because "was this already on
+        # screen?" is what separates a change from an entrance.
+        on_screen = {id(part) for part in scene.get_mobject_family_members()}
+        if on_play is not None:
+            on_play(prepared, on_screen)
         for animation in prepared:
             if on_text_morph is not None:
                 for source, target in _text_morphs(animation):
                     on_text_morph(source, target)
+            # Mirrors Scene.compile_animation_data: anything animated that
+            # is not already in the scene gets added. Without it the
+            # harness's scene graph drifts from a real render's -- four
+            # `Transform`-ed polygons can be on screen in the render and
+            # absent here -- and any check that reads `scene.mobjects`
+            # silently reads the wrong scene.
+            if not animation.is_introducer():
+                mobject = getattr(animation, "mobject", None)
+                if mobject is not None and id(mobject) not in on_screen:
+                    scene.add(mobject)
             animation._setup_scene(scene)
             animation.begin()
             animation.interpolate(1.0)
@@ -216,16 +360,20 @@ def _looks_like_cascade(error: BaseException, signature: tuple[str, Any], seen: 
     return isinstance(error, AttributeError) or signature in seen
 
 
-def validate_scene(scene_class: type) -> list[Failure]:
+def validate_scene(scene_class: type, audience: str | None = None) -> list[Failure]:
     """Run `scene_class.construct()` headlessly; return every segment failure."""
     scene = scene_class()
+    if audience is None:
+        audience = deck_audience(scene_class)
+    min_changes = MIN_CHANGES.get(audience or "", DEFAULT_MIN_CHANGES)
     failures: list[Failure] = []
-    morphs: list[Failure] = []
+    reports: list[Failure] = []
     current: dict[str, Any] = {"index": 0, "name": "construct"}
+    counts: dict[str, int] = {"changes": 0, "changes_on_figures": 0}
     seen: set[tuple[str, Any]] = set()
 
     def note_morph(source: str, target: str) -> None:
-        morphs.append(
+        reports.append(
             Failure(
                 index=current["index"],
                 segment=current["name"],
@@ -240,7 +388,7 @@ def validate_scene(scene_class: type) -> list[Failure]:
         )
 
     def note_conflict(first: str, second: str) -> None:
-        morphs.append(
+        reports.append(
             Failure(
                 index=current["index"],
                 segment=current["name"],
@@ -254,7 +402,58 @@ def validate_scene(scene_class: type) -> list[Failure]:
             )
         )
 
-    scene.play = _instant_play(scene, note_morph, note_conflict)
+    def note_play(prepared: list[Any], on_screen: set[int]) -> None:
+        for animation in prepared:
+            for change in _change_animations(animation, on_screen):
+                counts["changes"] += 1
+                if text_content(getattr(change, "mobject", None)) is None:
+                    counts["changes_on_figures"] += 1
+
+    def note(index: int, name: str, error_type: str, message: str) -> None:
+        reports.append(Failure(index=index, segment=name, error_type=error_type, message=message))
+
+    def check_segment(index: int, name: str) -> None:
+        """The content rules that are countable, checked where the segment ends.
+
+        Run only after a segment completes: on a segment that raised, every
+        count below is a consequence of the traceback, not a finding.
+        """
+        try:
+            for text_id, decorative_id in scene.find_text_over_decorative():
+                note(
+                    index,
+                    name,
+                    "TextOnDecorative",
+                    f"text {text_id!r} sits on the strokes of decorative {decorative_id!r}. "
+                    "Neither check sees this pair -- the overlap check drops decorative "
+                    "ids from both sides. Move the text clear, or shrink/shift the figure.",
+                )
+        except Exception:  # noqa: BLE001 - a geometry probe must not break the run
+            logging.getLogger(__name__).debug("decorative check failed", exc_info=True)
+
+        if index > 0 and counts["changes"] < min_changes:
+            note(
+                index,
+                name,
+                "NoChangeAnimation",
+                f"{counts['changes']} animation(s) alter something already on screen; "
+                f"R2 wants at least {min_changes}"
+                f"{' for ' + audience if audience else ''}. Entrances (Write/Create/FadeIn), "
+                "the clearing FadeOut, and emphasis (Indicate/Flash/Circumscribe) don't "
+                "count -- the segment has to change what the last one left.",
+            )
+        elif counts["changes_on_figures"] == 0:
+            verbs = _unperformed_verbs(scene)
+            if verbs:
+                note(
+                    index,
+                    name,
+                    "UnperformedAction",
+                    f"on-screen text promises {', '.join(verbs)}, but nothing except text "
+                    "is animated in this segment. R4: perform it, or delete the sentence.",
+                )
+
+    scene.play = _instant_play(scene, note_morph, note_conflict, note_play)
     # Snapshot only: advancing the segment index and clearing the
     # per-segment id set is what keeps duplicate-id detection honest.
     scene.next_slide = lambda *a, **k: scene._snapshot_segment()  # noqa: ARG005
@@ -263,8 +462,10 @@ def validate_scene(scene_class: type) -> list[Failure]:
         def wrapped(*args: Any, **kwargs: Any) -> None:
             index = current["index"]
             current["name"] = name
+            counts.update(changes=0, changes_on_figures=0)
             try:
                 method(*args, **kwargs)
+                check_segment(index, name)
             except Exception as error:  # noqa: BLE001 - reporting, not handling
                 message = str(error).strip().replace("\n", " ")
                 signature = _failure_signature(error, message)
@@ -279,7 +480,7 @@ def validate_scene(scene_class: type) -> list[Failure]:
                 )
                 seen.add(signature)
             finally:
-                # After, not before: morphs recorded *during* the segment
+                # After, not before: reports recorded *during* the segment
                 # must carry that segment's own index.
                 current["index"] = index + 1
 
@@ -300,9 +501,9 @@ def validate_scene(scene_class: type) -> list[Failure]:
                 message=f"{error}\n{traceback.format_exc(limit=3)}".strip().replace("\n", " "),
             )
         )
-    # Sorted by segment so the report reads in playback order; morphs are
+    # Sorted by segment so the report reads in playback order; reports are
     # never cascades -- each one is independently wrong.
-    return sorted(failures + morphs, key=lambda failure: failure.index)
+    return sorted(failures + reports, key=lambda failure: failure.index)
 
 
 def quiet_manim_logging() -> None:
@@ -313,8 +514,6 @@ def quiet_manim_logging() -> None:
     print -- and, when an agent reads the output, it costs far more than
     the signal it buries.
     """
-    import logging
-
     logging.getLogger("manim").setLevel(logging.ERROR)
 
 

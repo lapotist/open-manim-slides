@@ -243,3 +243,69 @@ def test_write_manifest_produces_expected_shape(tmp_path):
     assert payload["deck"] == "_DummySlide"
     assert payload["elements"][0]["id"] == "c1"
     assert payload["elements"][0]["appearances"][0]["segment"] == 0
+
+
+def _tracking_slide():
+    slide = _DummySlide()
+    return slide
+
+
+def test_find_text_over_decorative_reports_text_sitting_on_a_backdrop():
+    """The gap no other check spans: `assert_no_overlap_among_tracked`
+    drops decorative ids from both sides, so this pair is invisible to it."""
+    from manim import LEFT, RIGHT, Line, Text
+
+    slide = _tracking_slide()
+    slide.track(Line(LEFT * 3, RIGHT * 3), id="axis", decorative=True)
+    slide.track(Text("a caption", font_size=24), id="caption")
+
+    assert slide.find_text_over_decorative() == [("caption", "axis")]
+    # ...while the check that is supposed to cover collisions says nothing:
+    slide.assert_no_overlap_among_tracked()
+
+
+def test_find_text_over_decorative_ignores_text_placed_clear():
+    from manim import DOWN, LEFT, RIGHT, Line, Text
+
+    slide = _tracking_slide()
+    slide.track(Line(LEFT * 3, RIGHT * 3), id="axis", decorative=True)
+    slide.track(Text("a caption", font_size=24).shift(DOWN * 2), id="caption")
+
+    assert slide.find_text_over_decorative() == []
+
+
+def test_find_text_over_decorative_descends_into_tracked_groups():
+    """A caption is as often a group's child as a tracked mobject itself --
+    this found a real collision in an existing deck that every other check
+    passed."""
+    from manim import LEFT, RIGHT, Dot, Line, Text, VGroup
+
+    slide = _tracking_slide()
+    slide.track(Line(LEFT * 3, RIGHT * 3), id="meter", decorative=True)
+    slide.track(VGroup(Dot(), Text("label", font_size=24)), id="marks")
+
+    assert slide.find_text_over_decorative() == [("marks", "meter")]
+
+
+def test_find_text_over_decorative_ignores_a_decorative_frame_around_the_text():
+    from manim import SurroundingRectangle, Text
+
+    slide = _tracking_slide()
+    result = slide.track(Text("42", font_size=24), id="result")
+    slide.track(SurroundingRectangle(result, buff=0.15), id="result-box", decorative=True)
+
+    assert slide.find_text_over_decorative() == []
+
+
+def test_find_text_over_decorative_ignores_pairs_the_overlap_check_already_covers():
+    """Two non-decorative elements are `assert_no_overlap`'s job; reporting
+    them here would double up on every finding it already raises."""
+    from manim import LEFT, RIGHT, Line, Text
+
+    slide = _tracking_slide()
+    slide.track(Line(LEFT * 3, RIGHT * 3), id="axis")
+    slide.track(Text("a caption", font_size=24), id="caption")
+
+    assert slide.find_text_over_decorative() == []
+    with pytest.raises(ValueError, match="overlaps"):
+        slide.assert_no_overlap_among_tracked()

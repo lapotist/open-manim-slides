@@ -112,3 +112,122 @@ def _direction(x: float, y: float) -> Any:
     import numpy as np
 
     return np.array([x, y, 0.0])
+
+
+#: Clearance demanded between a text element and any stroke it sits on, in
+#: Manim units. Measured, not chosen: swept over 77 segments of 11 decks,
+#: the finding set is *identical* from 0.0 through 0.08 -- a plateau of
+#: seven findings, each confirmed against the rendered frame -- and the
+#: first false positive arrives at 0.12 (a label docked just outside a
+#: figure it belongs to, which is correct authoring). 0.08 sits in the
+#: middle of the plateau. This is a collision detector, not a clearance
+#: policy; asking for real breathing room starts flagging deliberate work.
+DEFAULT_INK_CLEARANCE: float = 0.08
+
+
+def text_content(mobj: Any) -> str | None:
+    """The string a text mobject renders, or None if it isn't one.
+
+    `original_text` first: manim strips spaces out of `Text.text` for its
+    glyph mapping, which would render 'Counting Things' as 'CountingThings'.
+    """
+    for attr in ("original_text", "text", "tex_string"):
+        value = getattr(mobj, attr, None)
+        if isinstance(value, str):
+            return value
+    return None
+
+
+def _segment_hits_box(start: Any, end: Any, box: tuple[float, float, float, float]) -> bool:
+    """Liang-Barsky: does the segment `start`->`end` touch the axis-aligned `box`?"""
+    x0, y0, x1, y1 = box
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    t_enter, t_exit = 0.0, 1.0
+    for numerator, denominator in (
+        (x0 - start[0], dx),
+        (start[0] - x1, -dx),
+        (y0 - start[1], dy),
+        (start[1] - y1, -dy),
+    ):
+        if denominator == 0:
+            if numerator > 0:  # parallel to this edge and entirely outside it
+                return False
+            continue
+        # `numerator / denominator` is Liang-Barsky's q/p with the sign of
+        # p flipped out of the denominator, so the usual `p < 0 enters`
+        # test reads as `denominator > 0` here.
+        t = numerator / denominator
+        if denominator > 0:
+            t_enter = max(t_enter, t)
+        else:
+            t_exit = min(t_exit, t)
+        if t_enter > t_exit:
+            return False
+    return True
+
+
+def _ink_leaves(mobj: Any) -> Any:
+    """Every drawable descendant of `mobj` -- the parts that actually have strokes."""
+    if mobj.submobjects:
+        for child in mobj.submobjects:
+            yield from _ink_leaves(child)
+    elif getattr(mobj, "points", None) is not None and len(mobj.points):
+        yield mobj
+
+
+def _ink_hits_box(mobj: Any, box: tuple[float, float, float, float]) -> bool:
+    """Does any stroke of `mobj` pass through `box`?
+
+    Walks the polyline through each leaf's Bezier control points rather
+    than testing the leaf's bounding box. Both matter:
+
+    * A *bounding box* is what `decorative=True` exists to escape -- it
+      reports a brace hugging a side or a tick poking off a meter as a
+      collision. Against the real strokes those are clear.
+    * The control *points* alone are not enough either: an axis line has
+      four of them, none inside a caption it runs straight through. A
+      Bezier curve lies inside its control points' convex hull, so the
+      polyline through them is a safe approximation of where the ink is.
+    """
+    for leaf in _ink_leaves(mobj):
+        leaf_box = _bbox(leaf)
+        if leaf_box[0] > box[2] or leaf_box[2] < box[0] or leaf_box[1] > box[3] or leaf_box[3] < box[1]:
+            continue
+        points = leaf.points
+        for index in range(len(points) - 1):
+            if _segment_hits_box(points[index], points[index + 1], box):
+                return True
+    return False
+
+
+def find_text_over_ink(
+    texts: Any,
+    backdrops: Any,
+    clearance: float = DEFAULT_INK_CLEARANCE,
+) -> list[tuple[Any, Any]]:
+    """Every (text, backdrop) pair where the backdrop's strokes run through the text.
+
+    The gap this closes: `assert_no_overlap` compares bounding boxes and
+    excludes `decorative` elements from both sides, so a caption crossing
+    an axis's tick numbers, or a heading grazing a figure's corner, passes
+    every check while being plainly wrong on screen. Text is the only side
+    tested, because non-text over a backdrop is routinely correct -- a
+    plotted curve crosses its own axis by construction.
+
+    A backdrop whose bounding box *contains* the text is framing it (a
+    `SurroundingRectangle`, a box drawn around a result) and is skipped.
+    """
+    findings: list[tuple[Any, Any]] = []
+    for text in texts:
+        tx0, ty0, tx1, ty1 = _bbox(text)
+        padded = (tx0 - clearance, ty0 - clearance, tx1 + clearance, ty1 + clearance)
+        for backdrop in backdrops:
+            if backdrop is text:
+                continue
+            bx0, by0, bx1, by1 = _bbox(backdrop)
+            framing = bx0 <= tx0 and by0 <= ty0 and bx1 >= tx1 and by1 >= ty1
+            if framing:
+                continue
+            if _ink_hits_box(backdrop, padded):
+                findings.append((text, backdrop))
+    return findings

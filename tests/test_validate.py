@@ -3,13 +3,18 @@ from pathlib import Path
 import pytest
 from manim import (
     LEFT,
+    PI,
     RIGHT,
+    UP,
     Circle,
     Dot,
+    FadeIn,
     FadeOut,
     FadeTransform,
     LaggedStart,
+    Indicate,
     MathTex,
+    Rotate,
     Square,
     Text,
     Transform,
@@ -331,3 +336,150 @@ def test_load_scene_class_names_candidates_when_several_exist(tmp_path: Path):
 def test_main_rejects_wrong_arg_count(capsys):
     assert main([]) == 2
     assert "usage" in capsys.readouterr().err
+
+
+class _TextOnDecorativeDeck(Slide):
+    """Passes every other check: nothing overlaps, nothing leaves the frame."""
+
+    def construct(self) -> None:
+        self.segment_one()
+        self.next_slide()
+
+    def segment_one(self) -> None:
+        from manim import LEFT, Line
+
+        self.track(Line(LEFT * 3, RIGHT * 3), id="axis", decorative=True)
+        self.track(Text("a caption", font_size=24), id="caption")
+        self.assert_no_overlap_among_tracked()
+
+
+class _EntrancesOnlyDeck(Slide):
+    def construct(self) -> None:
+        self.segment_open()
+        self.next_slide()
+        self.segment_more()
+        self.next_slide()
+
+    def segment_open(self) -> None:
+        self.box = Square(side_length=1)
+        self.play(FadeIn(self.box))
+
+    def segment_more(self) -> None:
+        self.play(FadeIn(Circle(radius=0.3).shift(RIGHT * 3)))
+
+
+class _EmphasisOnlyDeck(_EntrancesOnlyDeck):
+    def segment_more(self) -> None:
+        self.play(Indicate(self.box))
+
+
+class _ChangeDeck(_EntrancesOnlyDeck):
+    def segment_more(self) -> None:
+        self.play(self.box.animate.shift(RIGHT * 2))
+
+
+class _AddedByTransformDeck(Slide):
+    """The second segment can only see a change if the first segment's
+    `Transform` put its mobject on screen, the way a real render does."""
+
+    def construct(self) -> None:
+        self.segment_stamp()
+        self.next_slide()
+        self.segment_move()
+        self.next_slide()
+
+    def segment_stamp(self) -> None:
+        self.copy = Square(side_length=1)
+        self.play(Transform(self.copy, Square(side_length=1).shift(RIGHT)))
+
+    def segment_move(self) -> None:
+        self.play(self.copy.animate.shift(LEFT))
+
+
+class _UnperformedActionDeck(Slide):
+    def construct(self) -> None:
+        self.segment_open()
+        self.next_slide()
+        self.segment_promise()
+        self.next_slide()
+
+    def segment_open(self) -> None:
+        self.caption = Text("start", font_size=24)
+        self.shape = Square(side_length=1).shift(RIGHT * 3)
+        self.play(FadeIn(self.caption), FadeIn(self.shape))
+
+    def segment_promise(self) -> None:
+        # The caption is replaced rather than morphed, because a `Transform`
+        # between two strings leaves `original_text` reading the *old* one --
+        # and is separately reported as an illegible morph anyway.
+        self.remove(self.caption)
+        self.caption = Text("the square rotates", font_size=24)
+        self.add(self.caption)
+        self.play(self.caption.animate.shift(UP * 0.5))
+
+
+class _PerformedActionDeck(_UnperformedActionDeck):
+    def segment_promise(self) -> None:
+        self.remove(self.caption)
+        self.caption = Text("the square rotates", font_size=24)
+        self.add(self.caption)
+        self.play(Rotate(self.shape, PI / 2))
+
+
+def _types(failures: list[Failure]) -> list[str]:
+    return [failure.error_type for failure in failures]
+
+
+def test_text_on_a_decorative_element_is_reported():
+    failures = validate_scene(_TextOnDecorativeDeck)
+
+    assert _types(failures) == ["TextOnDecorative"]
+    assert "caption" in failures[0].message and "axis" in failures[0].message
+
+
+def test_a_segment_of_pure_entrances_is_reported():
+    """R2, made countable. Nothing changes -- things only appear."""
+    failures = validate_scene(_EntrancesOnlyDeck)
+
+    assert _types(failures) == ["NoChangeAnimation"]
+    assert failures[0].index == 1
+
+
+def test_emphasis_does_not_satisfy_the_change_rule():
+    """`Indicate` is a `Transform` subclass, so this only passes if the
+    emphasis animations are excluded by class rather than by base class."""
+    assert _types(validate_scene(_EmphasisOnlyDeck)) == ["NoChangeAnimation"]
+
+
+def test_a_real_change_satisfies_the_rule():
+    assert validate_scene(_ChangeDeck) == []
+
+
+def test_the_opening_segment_is_exempt_from_the_change_rule():
+    """A deck opens on a cleared frame; there is nothing there to change."""
+    failures = validate_scene(_EntrancesOnlyDeck)
+
+    assert all(failure.index != 0 for failure in failures)
+
+
+def test_middle_school_demands_two_changes_per_segment():
+    assert validate_scene(_ChangeDeck, audience="middle-school")[0].error_type == "NoChangeAnimation"
+    assert validate_scene(_ChangeDeck, audience="high-school") == []
+
+
+def test_a_transform_puts_its_mobject_on_screen_like_a_real_render():
+    """`Scene.compile_animation_data` adds any animated mobject that isn't
+    in the scene yet. Without that, the harness's scene graph drifts from
+    the render's and every later on-screen test reads the wrong scene."""
+    assert validate_scene(_AddedByTransformDeck) == []
+
+
+def test_an_action_verb_with_nothing_but_text_animated_is_reported():
+    failures = validate_scene(_UnperformedActionDeck)
+
+    assert "UnperformedAction" in _types(failures)
+    assert "rotates" in failures[-1].message
+
+
+def test_an_action_verb_performed_by_a_figure_is_not_reported():
+    assert validate_scene(_PerformedActionDeck) == []
