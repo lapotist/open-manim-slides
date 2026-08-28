@@ -816,6 +816,33 @@ measured against all 11 local decks (77 segments) before it was built.
 - Test count: 169 → 187. `SKILL.md`'s review step drops its two source
   greps (R2/R4 are counted upstream now) and keeps the judgement they were
   standing in for.
+- **Committed, then verified from the commits.** Sessions fourteen through
+  seventeen went in as four commits (distribution, scaffold context,
+  content gates, docs) on a branch. A `git+file://` install through the
+  `npx` bootstrapper then built a project from the *committed* tree — which
+  is what proves the commits are self-sufficient, since a git install
+  cannot see the working directory. Full pipeline green on that project:
+  `init` → scaffold → `validate` → `-ql` render → `frames` → `blankspace`
+  → HTML export → `playback` (4/4 navigations correct).
+- **Dev environment moved to manim 0.21.0**, closing session fifteen's
+  drift risk (a fresh install resolved 0.21 while this repo ran 0.20.1, so
+  every test run measured a version no user would have). Only manim
+  changed; nothing else in the freeze moved. Evidence gathered before
+  bumping `VERIFIED_MANIM`, because that constant means the recipes were
+  re-checked rather than assumed:
+  - all 14 `motion-recipes.md` snippets construct-verified through the
+    instant-play harness (the fragments' unbound names supplied from the
+    surrounding prose);
+  - both documented *bugs* still caught by the checks that catch them
+    (`IllegibleTextMorph`, `ConflictingAnimations`);
+  - recipe 10's behavioural claim reproduced numerically — `Angle` still
+    sweeps 323° for rays at 0° and −37°, the exact figure the recipe cites.
+    A construct-only pass would not have caught it changing;
+  - 187 tests pass, all 11 decks validate **identically** to the 0.20.1
+    baseline (same decks, same counts), and a 31-animation deck renders
+    clean in 5s.
+  Whether to bound manim in `pyproject.toml` is still the open
+  distribution-policy call from session fifteen; nothing is pinned.
 
 ## Immediate next steps (priority order)
 

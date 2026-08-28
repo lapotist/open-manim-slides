@@ -34,7 +34,11 @@ SKILL_NAMES = ("create-deck",)
 #: current, which will not stay this version -- and an animation recipe that
 #: silently changed behaviour is the kind of defect that surfaces as a bad
 #: rendered frame rather than an error, so `doctor` says when they differ.
-VERIFIED_MANIM = "0.20.1"
+#: Moving this number means re-running that verification, not assuming it:
+#: every snippet through the instant-play harness, the two documented bugs
+#: still caught by the checks that catch them, and recipe 10's reflex-angle
+#: claim reproduced numerically.
+VERIFIED_MANIM = "0.21.0"
 
 PROJECT_AGENTS_MD = """\
 # AGENTS.md

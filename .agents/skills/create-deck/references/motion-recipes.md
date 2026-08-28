@@ -1,4 +1,4 @@
-# Motion recipes (verified against manim 0.20.1)
+# Motion recipes (verified against manim 0.21.0)
 
 Every snippet here was construct-checked headlessly and rendered in one
 real deck before being written down. Use these instead of guessing API —
