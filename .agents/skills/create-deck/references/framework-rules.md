@@ -60,6 +60,15 @@ marking something decorative to silence a collision, move it instead.
 means the slide's main content is exempt from the one check that guards
 it. (The old decks did exactly this and shipped unchecked diagrams.)
 
+The flag is narrower than it used to be. `validate` reports
+`TextOnDecorative` when a text element lands on a decorative element's
+actual **strokes** — the recurring failure that no check's scope spanned,
+since the overlap check drops decorative ids from both sides. Bounding
+boxes are untouched by it, so everything above still holds: a label
+docked outside a figure, a curve inside its own axes, and a brace hugging
+a side all stay clear. What it catches is the caption crossing an axis's
+tick numbers, and the `=` sign touching a box drawn around the result.
+
 ### Composite figures: one designed unit, one id
 
 Parts that *intentionally* touch — a label centered inside its square, a

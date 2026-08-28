@@ -37,7 +37,9 @@ run the checks on your finished deck, don't trust your intent.
   may start from a cleared frame; every other segment begins by
   *changing* what's already there (shrink and move the previous figure
   aside, dim a heading, transform an equation into its next form).
-  Check: count the segment-opening `FadeOut`s ≤ 2.
+  Enforced when you scaffold: the plan's "carries in" column is what
+  decides this, and a third cleared start is rejected there — before any
+  code exists.
 - **R2 — Something must change, not just appear.** Each segment needs at
   least one `self.play()` that alters a mobject already on screen.
   Counts: `Transform`/`ReplacementTransform`/`TransformMatchingTex`,
@@ -46,7 +48,9 @@ run the checks on your finished deck, don't trust your intent.
   `FadeIn`, `GrowArrow`, ...), the clearing `FadeOut`, or emphasis
   (`Indicate`, `Flash`, `Circumscribe`, `Wiggle`). The change must carry
   the idea: if deleting it would make the segment say *less* — not just
-  look duller — it counts.
+  look duller — it counts. `validate` counts the floor for you (reading
+  `AUDIENCE`, so middle school needs two); whether the change carries the
+  idea is the half no count reaches.
 - **R3 — A non-text mobject in every segment** except the opening title
   and closing summary, with on-screen text *anchored* to it: a `Brace`
   with `get_tex()` under the term being discussed, an arrow from symbol
@@ -57,7 +61,9 @@ run the checks on your finished deck, don't trust your intent.
   halve, fold, flip, sweep, split, combine, rearrange, fill, cover,
   trace, increase, decrease, cancel, balance*). Each hit needs an
   animation in that segment performing it. Can't animate it? Delete the
-  sentence — it's a promise the slide doesn't keep.
+  sentence — it's a promise the slide doesn't keep. `validate` reports
+  the flagrant case (a verb on screen while nothing but text is animated);
+  matching each verb to the animation that performs it is yours.
 - **R5 — At most 6 `self.play()` per segment** (4 for middle school),
   and the heading arrives *with* the first figure, never on its own
   beat: `self.play(Write(head), Create(figure))`. And the reader sets
@@ -76,7 +82,10 @@ Two framework rules with no error message when violated, so they live
 here: **never delete the scaffolded
 `self.assert_no_overlap_among_tracked()` line**, and **never mark a
 segment's subject `decorative=True`** (exact criteria for that flag:
-`framework-rules.md`).
+`framework-rules.md`). Marking something decorative no longer hides it
+completely — `validate` reports text landing on a decorative element's
+strokes — but it does still remove it from the overlap check, so the rule
+stands.
 
 ## 1. Gather the deck's shape
 
@@ -141,13 +150,22 @@ include the breakdown in your closing message.
 Read `references/exemplar.md` now. Then produce this table, one row per
 segment, and show it to the user with the outline:
 
-| # | segment | the one thing it shows | carried in from previous | the change animation (R2) | the non-text mobject (R3) |
-|---|---|---|---|---|---|
+| # | segment | the one thing it shows | carries in (`self.x`) | hands off (`self.x`) | the change animation (R2) | the non-text mobject (R3) |
+|---|---|---|---|---|---|---|
 
-Every cell filled, before any code. If "carried in" is empty for more
-than 2 rows, the deck is a slideshow — redesign the outline so segments
-build on each other. If a "change animation" cell names `Transform`,
-`ValueTracker`, `MoveAlongPath`, `Axes`, or `Brace`, read
+Every cell filled, before any code. **The two `self.x` columns are
+attribute names, not prose** — `fig`, `axes`, `eq_area` — and they are
+what step 3 feeds to the scaffolder, so spell them exactly. A segment's
+"carries in" must appear in some earlier segment's "hands off"; the
+scaffolder rejects the plan otherwise, before any code exists. That check
+is worth its weight: a carried name that nothing produces is the single
+most common failure in past builds, and once written it surfaces as an
+`AttributeError` several segments away from the typo.
+
+If "carries in" is empty for more than 2 rows, the deck is a slideshow —
+redesign the outline so segments build on each other (the scaffolder
+rejects a third cleared start too). If a "change animation" cell names
+`Transform`, `ValueTracker`, `MoveAlongPath`, `Axes`, or `Brace`, read
 `references/motion-recipes.md` before writing that segment.
 
 ### Commit to one composition, for the whole deck
@@ -156,50 +174,87 @@ Decide *now* where things live, and hold it in every segment. Deciding
 per-segment is what produces a deck with a figure adrift in the middle
 and a third of the frame no segment ever touches.
 
-The frame is 14.2 × 8 units; the safe area inside the margin is about
-13.2 × 7, and a heading eats the top ~1. Default composition:
+You do not have to invent the numbers: the scaffolded file arrives with
+a composition block already derived from the real frame, and every slot in
+it is inside the safe margin by construction.
 
-- **Left column** (x ≈ −6.3 … 0) — the figure. Size it to *fill* that
-  column: roughly 5-6 units wide. A 2-3 unit diagram in a 6-unit column
-  is the single most common cause of an empty-looking deck.
-- **Right column** (x ≈ 0.3 … 6.3) — the accumulating text: equations,
-  results, the running reference. Anchor the first line near the top and
-  grow *downward*, so the space beneath it is visibly reserved for later
-  segments rather than left over.
-- Set module constants for the column centers and the first line's
-  height, and position against those — never a fresh literal per segment.
+```python
+SAFE_X = 6.61          # |x| any element must stay within
+SAFE_Y = 3.5           # |y| any element must stay within
+HEAD_Y = 3.0           # heading() sits here; leave this band clear
+COL_LEFT_X = -3.45     # centre of the figure column
+COL_RIGHT_X = 3.45     # centre of the accumulating-text column
+COL_W = 6.3            # size the figure to FILL this, not float in it
+ROW_Y = (1.9, 0.9, -0.1, -1.1, -2.1)   # text rows, top-down
+```
 
-Deviate when the content demands it (a full-width title, a summary that
-centers), but decide that here, not while debugging a layout.
+- **Left column** — the figure, sized to *fill* `COL_W` (roughly 5-6
+  units wide). A 2-3 unit diagram in a 6-unit column is the single most
+  common cause of an empty-looking deck.
+- **Right column** — the accumulating text: equations, results, the
+  running reference. Start at `ROW_Y[0]` and grow *downward*, so the space
+  beneath is visibly reserved for later segments rather than left over.
+- **Position against these names, never a fresh literal.** Every
+  safe-frame and overlap failure in past builds was an invented
+  per-segment coordinate. `move_to(np.array([COL_LEFT_X, ROW_Y[1], 0.0]))`
+  cannot produce one.
+
+Decide here — not while debugging a layout — where you deviate (a
+full-width title, a summary that centres).
 
 Targets, checked mechanically in step 6: **every segment ≥ 20% fill, no
 region ≥ 15% of the frame left unused by the whole deck.**
 
 ## 3. Scaffold (deterministic, not freehand)
 
+Feed it the table — every column, not just the names. The plan is the
+input to the file's structure, so nothing you decided in step 2 has to be
+remembered again while coding:
+
 ```bash
 python -c "
 from pathlib import Path
-from open_manim_slides.scaffold import new_deck
-path = new_deck(title='<title>', segments=[<segment names>], out_dir=Path('decks'), audience='<audience>')
+from open_manim_slides.scaffold import new_deck, Segment
+path = new_deck(
+    title='<title>',
+    audience='<audience>',
+    out_dir=Path('decks'),
+    segments=[
+        Segment('<name>', shows='<the one thing it shows>',
+                carries=[], produces=['<self.x it hands off>']),
+        Segment('<name>', shows='<...>',
+                carries=['<self.x from an earlier segment>'], produces=['<...>']),
+    ],
+)
 print(path)
 "
 ```
 
-Writes `decks/<slug>.py`: one `segment_<name>` method per row of your
-table, each ending in `self.assert_no_overlap_among_tracked()` (not
-optional), each carrying a checklist comment you delete as you satisfy
-it.
+It **rejects the plan** — before a line of deck code exists — if a
+segment carries a name no earlier segment produces, or if more than two
+segments start from a cleared frame. Fix the plan, not the deck.
+
+Writes `decks/<slug>.py`: the composition block above, a declaration of
+every handed-off attribute, and one `segment_<name>` method per row —
+each stating what it carries in, what it must hand off, its audience play
+and word budget, and ending in `self.assert_no_overlap_among_tracked()`
+(not optional). The notes are there to be deleted as you satisfy them.
 
 ## 4. Fill in each segment
 
 The shape of a good segment (see the exemplar for a real one):
 
+The stub already tells you what this segment carries in, what it must
+hand off, and its play/word budget. Author against those and the
+composition slots:
+
 ```python
 def segment_<name>(self) -> None:
     """<the one thing this segment shows>"""
-    # carried in: self.figure, self.eq   (R1 — or nothing, max twice per deck)
-    self.play(self.figure.animate.scale(0.6).to_edge(LEFT, buff=SPACING_MD))
+    # carried in:  self.figure, self.eq
+    # hand off:    self.part   <- set before returning
+    # budget:      <= 6 self.play() calls, <= 25 words on screen  [high-school]
+    self.play(self.figure.animate.scale(0.6).move_to(np.array([COL_LEFT_X, 0.0, 0.0])))
 
     head = heading(self, "<3-5 words>")               # 36pt, top, tracked
     part = self.track(Polygon(...), id="<kebab-id>")
@@ -208,13 +263,16 @@ def segment_<name>(self) -> None:
 
     self.play(Transform(part, part_after))            # R2: the change that IS the idea
 
-    self.figure = part                                # hand off to the next segment
+    self.part = part                                  # the hand off, by the declared name
     self.assert_no_overlap_among_tracked()            # never delete
 ```
 
 Mechanics: `track()` every meaningful element; `assert_within_safe_frame`
-before animating in; theme tokens (`FONT_SIZE_*`, `SPACING_*`,
-`COLOR_*`) over literal numbers. Full rules: `references/framework-rules.md`.
+before animating in; theme tokens (`FONT_SIZE_*`, `SPACING_*`, `COLOR_*`)
+and composition slots (`COL_LEFT_X`, `ROW_Y[...]`) over literal numbers.
+Delete each `#  [ ]` note as you satisfy it; keep the `carried in` /
+`hand off` / `budget` lines — they are what the next edit reads. Full
+rules: `references/framework-rules.md`.
 
 ## 5. Check the math before you render it
 
@@ -225,8 +283,9 @@ python -m open_manim_slides.validate decks/<slug>.py
 Runs every segment's construction and every mechanical check — safe
 frame, overlap, centering, duplicate ids, illegible text morphs
 (`Transform` between two sentences, which spends most of the play as
-unreadable glyph soup), and conflicting animations (two animations in one
-`play()` driving the same mobject) — **without rendering a frame**. Two
+unreadable glyph soup), conflicting animations (two animations in one
+`play()` driving the same mobject), text sitting on a decorative
+element's strokes, and R2/R4 — **without rendering a frame**. Two
 seconds instead of ten, and it reports *every* broken segment at once
 where a render aborts at the first.
 
@@ -239,6 +298,19 @@ final frames would catch, because the final frame is the one moment
 nothing is moving. Fix it with `FadeTransform` (re-tracking the id — it
 replaces the mobject rather than mutating it) or `TransformMatchingTex`
 for `MathTex`; see `references/motion-recipes.md`.
+
+`TextOnDecorative` is the pair no other check spans: the overlap check
+drops `decorative` ids from *both* sides, so a caption crossing an axis's
+tick numbers passes everything and is still wrong on screen. It tests the
+decorative element's actual strokes, not its bounding box, so a label
+docked just outside a figure is fine — what it reports is text landing on
+ink. Move the text, or shrink the figure; do not un-mark the decorative.
+
+`NoChangeAnimation` and `UnperformedAction` are R2 and R4, counted rather
+than self-graded — R2 reads `AUDIENCE` for the per-audience floor, and R4
+fires when on-screen prose promises an action and nothing but text is
+animated. Both are floors, not the whole rule: passing them does not mean
+the change carries the idea, which is still yours to judge.
 
 **Fix everything it lists, re-run until it prints `layout OK`, and only
 then render.** Rendering to discover a placement error is the slowest
@@ -294,12 +366,13 @@ For each segment fill this table — closed answers only:
   `motion-recipes.md`. Ignore `Write`'s partial strokes — that is the
   animation working.
 
-Then two source greps per segment, because frames can't show them: the
-R2 animation list, and the R4 verb list against every on-screen string.
+R2 and R4 are already counted by `validate` (step 5), so there is no
+grep to run here — what is left for you is the part no count reaches:
+whether the change *carries the idea*, rather than merely existing.
 
 **Fix a segment only if**: Q1 no · Q2 fill < 20% · Q3 names a pair ·
 Q4 > 25 (18 middle-school) · Q5 names a pair · Q6 is heading-only ·
-Q7 names a tile · R2 grep empty · R4 grep has an unperformed verb.
+Q7 names a tile.
 **Nothing else. "Could be prettier" is not a reason.**
 
 **Then fix the deck-level layout if** `blankspace` reports a dead region

@@ -77,10 +77,30 @@ dependency `manimpango` to build (see `README.md`).
     every angle).
   - `assert_reasonably_centered_among_tracked()` — see `layout.py` below;
     unlike the overlap check, does **not** exclude `decorative` ids.
+  - `find_text_over_decorative()` — the pair no other check's scope spans
+    (sessions eight and fourteen): tracked text landing on a `decorative`
+    element's strokes, which the overlap check cannot see because it drops
+    decorative ids from *both* sides. Reports rather than raises, and
+    `validate.py` is what calls it; text is found by descending into
+    tracked groups, since a caption is as often a group's child as a
+    tracked mobject in its own right.
 - `src/open_manim_slides/layout.py` — safety primitives, one slice below
   the design-system layer in `theme.py`:
   - `assert_within_safe_frame(mobj)` / `assert_no_overlap(*mobjects)` —
     margin- and collision-safety, raise at construction time.
+  - `find_text_over_ink(texts, backdrops, clearance=0.08)` — the geometry
+    under `find_text_over_decorative`: does a backdrop's *stroke* run
+    through a text's box? Three decisions are load-bearing, each measured
+    over 77 segments of 11 decks. It walks the polyline through each
+    leaf's Bezier control points, because a bounding box reports every
+    legitimate adjacency (25 findings, nearly all benign) while the
+    control points *alone* miss an axis line running through a caption —
+    it has four of them, all at its ends. Only text is tested, because
+    non-text over a backdrop is routinely correct (a plotted curve crosses
+    its own axis by construction). And a backdrop whose bbox contains the
+    text is framing it, not colliding with it. The 0.08 clearance sits
+    mid-plateau: the finding set is identical from 0.0 to 0.08, and the
+    first false positive arrives at 0.12.
   - `assert_reasonably_centered(*mobjects, tolerance=0.2)` — checks the
     *combined* bounding box sits near the frame's true center, catching a
     composition that's in-frame and non-overlapping but never recentered
@@ -128,14 +148,41 @@ dependency `manimpango` to build (see `README.md`).
     Verify with `playback.py` below; do not "clean it up" without
     re-running that.
 - `src/open_manim_slides/scaffold.py` — deterministic deck-file generator,
-  not agent-authored: given a title, segment list, and optional
-  `audience` ("middle-school"/"high-school", emitted as a module-level
-  `AUDIENCE` constant — deliberately *below* the docstring, because the
-  webrunner's title regex captures everything between the docstring
-  quotes), produces the file's structure (imports, class, one function
-  per segment, each pre-wired to call
-  `self.assert_no_overlap_among_tracked()` beneath a content-rules
-  checklist comment the author deletes as they fill the segment in).
+  not agent-authored. Takes the `create-deck` plan table directly
+  (`Segment(name, shows, carries, produces)`, or plain names for the
+  legacy form) plus an optional `audience` ("middle-school"/"high-school",
+  emitted as a module-level `AUDIENCE` constant — deliberately *below* the
+  docstring, because the webrunner's title regex captures everything
+  between the docstring quotes). It emits the file's structure *and its
+  authoring context*, which is the load-bearing part:
+  - a **composition block** (`SAFE_X`, `COL_LEFT_X`, `COL_RIGHT_X`,
+    `COL_W`, `ROW_Y`, `HEAD_Y`) derived from the real frame, with the
+    column half-width **floored** rather than rounded so a slot's outer
+    edge cannot land outside the bound it came from — placing against
+    these names cannot fail the safe-frame check;
+  - a **declaration of every cross-segment attribute** as a bare
+    annotation. Annotations create no attribute, so a forgotten handoff
+    still raises `AttributeError` — the benefit is that the name is
+    written down once where both the producing and consuming segment can
+    see it, instead of being re-invented at both ends. Assigning defaults
+    here would trade a loud failure for a silent `None`;
+  - per segment, what it **carries in**, what it must **hand off**, and
+    the audience's play/word budget, so R5's ceiling is at the point of
+    writing rather than in a table read thirty turns earlier;
+  - `check_plan()`, which runs at scaffold time and **rejects the plan**
+    if a segment carries a name no earlier segment produces (the
+    `AttributeError`-cascade class, killed before any code exists) or if
+    more than `MAX_CLEARED_STARTS` segments begin from a cleared frame
+    (R1). Segment count against the audience is returned as an advisory
+    note, not raised — a deliberate outline may differ.
+
+  The motivation is measured, from six real build transcripts: `validate`
+  made each check ~4.5× cheaper without reducing how *often* the agent
+  checked (one build: 15 `validate` runs across 54 edits, in
+  `AUTHOR AUTHOR VALIDATE` cycles; an earlier one: 23 renders). Round-trip
+  *count* is what a build spends. The two classes driving those cycles —
+  state handoff and invented coordinates — are both decided before any
+  check can run, so they are answered in the file the agent starts from.
 - `src/open_manim_slides/frames.py` — per-segment review-frame extractor
   (`python -m open_manim_slides.frames <SceneName>`): reads
   `slides/<Scene>.json` in array order (the hash filenames sort
@@ -183,7 +230,25 @@ dependency `manimpango` to build (see `README.md`).
   drawable glyphs, not string length, because `tex_string` is LaTeX
   source — `\tfrac12` is eight characters but one small fraction.
   `FadeTransform`, `TransformMatchingTex`, `.animate`, and shape-to-shape
-  transforms are deliberately not flagged. It also reports
+  transforms are deliberately not flagged.
+  It reports `TextOnDecorative` from `base.py`'s finder above, and two
+  content rules that were previously self-graded prose: `NoChangeAnimation`
+  (R2 — at least one animation per segment altering something already on
+  screen, two for middle school, reading the deck's `AUDIENCE` constant,
+  which nothing had ever read; segment 0 is exempt, since a cleared frame
+  has nothing to change) and `UnperformedAction` (R4 — on-screen prose
+  promising an action while nothing but text is animated). Both are floors,
+  not the rules: whether the change *carries the idea* is not countable.
+  The emphasis animations must be excluded **by class before descending**,
+  because `Indicate` is a `Transform` subclass and `Circumscribe`/`Flash`
+  are `AnimationGroup`s — otherwise a pulse would satisfy R2, which is
+  exactly what R2 says doesn't count.
+  `_instant_play` mirrors `Scene.compile_animation_data`'s
+  `add_mobjects_from_animations`: anything animated that is not already in
+  the scene gets added. Without it the harness's scene graph drifts from a
+  real render's — a `Transform`ed mobject is on screen in the render and
+  absent here — and any check reading `scene.mobjects` silently reads the
+  wrong scene. It also reports
   `ConflictingAnimations` — two animations in one `play()` whose mobject
   *families* intersect, the classic case being `FadeOut(group)` alongside
   `Transform(child_of_group, ...)`. Manim 0.20 can deadlock its encoder on
@@ -229,6 +294,36 @@ dependency `manimpango` to build (see `README.md`).
   desktop) while the wrong-pose condition is not. Runs on `pytest`
   (~11 s, skipped without Firefox) and never during a deck build — it
   checks the finished artifact, it is not a step in producing one.
+- `src/open_manim_slides/cli.py` — the `open-manim-slides` console script
+  (`init`, `doctor`, `version`), which is what makes a *fresh install*
+  usable. The skill files are the workflow, so the wheel force-includes
+  `.agents/skills` as `open_manim_slides/_skills` and `init` copies them
+  back out into a project (plus a minimal `AGENTS.md`, its `CLAUDE.md`
+  symlink, a `.claude/skills` projection, and `decks/`). That generated
+  `AGENTS.md` is deliberately short: this repo's own is 278 lines of
+  internals that the harness auto-loads through `CLAUDE.md` before any
+  skill runs, which is exactly the context a real user does not have —
+  reproducing it in generated projects would rebuild the leak that the
+  skill's test-run rule exists to avoid, and cannot itself prevent.
+  `doctor` reports python/ffmpeg/manim/manim-slides/manimpango plus
+  optional latex/dvisvgm/firefox, and notes when the installed manim
+  differs from `VERIFIED_MANIM`, the release the motion recipes were
+  checked against. **`__init__.py` re-exports lazily (PEP 562) for this
+  module's sake**: `doctor` has to run on a machine where manim failed to
+  build (the likeliest first-install state, since manimpango compiles
+  against system cairo/pango), and eager re-exports made the diagnostic
+  crash with the very `ModuleNotFoundError` it exists to report.
+- `npm/` — the `npx open-manim-slides@latest new <dir>` bootstrapper: a
+  zero-dependency Node script that creates the project directory, builds a
+  venv, installs the Python distribution into it, and runs
+  `open-manim-slides init`. Node is the delivery mechanism, not a
+  dependency of the framework — `npx <pkg>@latest` is the widely-available
+  command that fetches a current version every time with nothing installed
+  globally to go stale, which is what a clean measurement of the authoring
+  workflow needs. `--from pypi` pins the Python distribution to the npm
+  package's own version so the two releases cannot drift; the default
+  (`git`) needs no registry publish. Not published to either registry yet
+  — that is the user's call.
 - `src/open_manim_slides/webrunner/` — optional local web UI
   (`pip install -e ".[web]"`, then `./run-webrunner.sh`): lists decks
   under `decks/`, renders one on click with a live progress bar (parsed

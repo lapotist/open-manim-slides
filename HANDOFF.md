@@ -1,6 +1,6 @@
 # open-manim-slides — Handoff
 
-Status: updated after the thirteenth implementation session, 2026-08-22.
+Status: updated after the sixteenth implementation session, 2026-08-28.
 The repo is real: git initialized, MIT-licensed, pushed to
 **https://github.com/lapotist/open-manim-slides** (public). Read this file
 before doing further work here — it's the authoritative summary of what's
@@ -555,6 +555,268 @@ no reference decks and under time pressure ("don't fix the slide").
   to fail when the fix is disabled — a check that cannot fail is not a
   check.
 
+**Fourteenth session (2026-08-27)** — `create-deck` run on the dominated
+convergence theorem (high-school, 9 segments, user-directed), proving it
+geometrically: areas can leak away in a limit but never appear from
+nowhere, so under a finite roof the area and the complementary gap — whose
+sum is fixed at the integral of the roof — squeeze each other onto one
+value. Framework unchanged; the run is recorded for what it measured.
+
+- **`validate.py` paid for itself exactly as designed.** First pass
+  reported 7 failing segments (2 real, 5 marked cascades) in ~2s; the
+  cascade marking was correct — fixing the two real ones cleared four of
+  the five. Second pass surfaced 2 more. **Zero renders were spent finding
+  layout errors**, against session ten's measured 12 round-trips for five
+  errors found one render at a time.
+- **A recurring blind spot recurred, in a new costume**: the per-segment
+  caption ran straight through the x-axis tick numbers in four segments.
+  Both parties pass every check — the axes are `decorative` (correctly:
+  plotted content sits inside them by construction) and the caption is
+  safe-framed — and **no single check's scope spans the pair**. Same shape
+  as session eight's hypotenuse-square-vs-heading near-collision. Worth
+  noting the visual review caught it immediately, which is the argument
+  for keeping the review even when `validate` is clean.
+- **Stale tracking, third variant.** `VGroup.remove()` on a tracked group
+  does not take a child off screen when that child was also added to the
+  scene in its own right (anything animated in via `Write`/`Create`/
+  `FadeIn` is). The summary detached three curve labels and a meter marker
+  so a group scale would not shrink them, and all four stayed at full size
+  as orphans — *and* dropped out of the overlap check, so nothing raised.
+  `framework-rules.md` already states the rule in its other direction
+  ("fade the tracked mobject, not a re-wrapping of its children"); this is
+  the same hazard reached from the opposite side, and the fix is the same:
+  fade it, don't detach it.
+- **`blankspace` drove a real structural gain, not a nudge.** Lifting the
+  figure 0.45 units to clear the caption also moved every segment's fill
+  up (43.1-54.9% -> 47.2-56.9%) and cut deck-level dead space 14% -> 10%.
+  Consistent with session twelve's correction: spreading content raises
+  fill, concentrating it lowers it.
+- **One review round, three fixes, all mechanical triggers** (Q3 touching
+  pair x4 segments, one illegible label, one orphan set). Under half the
+  segments flagged, so no restructure. R2 satisfied in all 9 segments;
+  every R4 verb performed; max 6 plays/segment at the high-school ceiling.
+- Timing note: the `progress` report for this run reads 4h32m total with
+  91% in `validate`, which is wall clock across an interruption, not work.
+  **The tracker measures elapsed time between phase calls and cannot tell
+  a long think from an idle session** — worth knowing before trusting a
+  budget verdict on a resumed run.
+
+**Fifteenth session (2026-08-28)** — Analysis of why documented fixes
+recur, then the distribution slice that makes the question answerable.
+
+- **The enforcement audit** (user's question: bugs already solved and
+  written into the instructions keep coming back — what is failing).
+  Measured, not guessed: **none of R1-R7 has a mechanical gate.** Their
+  "checks" are the agent grepping code it just wrote and grading itself.
+  The sharpest evidence is R1, whose stated check is "count the
+  segment-opening `FadeOut`s <= 2": run literally against the skill's own
+  output it fails 5-7 times per deck in every recent run
+  (`sine_cosine` 7/8 segments, `dominated_convergence` 6/9,
+  `absolute_value` 5/9), and no run ever reported it — because the agent
+  silently applied the rule's *intent* (a partial fade alongside a carried
+  figure, of which those decks have 0-2, correctly). The decks are fine;
+  the enforcement is fictional, and where letter and intent diverge the
+  agent picks, with nothing to catch a pick in the wrong direction.
+  Sorted by what guarded them at the moment of recurrence, every rule that
+  crossed into `validate.py` (illegible morph, conflicting animations)
+  stopped recurring, and every rule that stayed prose (stale tracking —
+  three variants now; `decorative` element colliding with a safe-framed
+  one — sessions eight and fourteen) recurred. Other mechanisms recorded:
+  conditional reads (`motion-recipes.md` only if the *plan table* names
+  one of five constructs, though its gotchas are needed at coding time;
+  `framework-rules.md` only *after* an `assert_*` raises, so its rules
+  about the failures that raise nothing are behind a trigger that cannot
+  fire); rules stated in one direction only; the silent-failure class,
+  where the wrong move *disables* a guard rather than tripping it;
+  `AUDIENCE` written by `scaffold.py` and read by nothing, so the
+  middle-school ceilings live only in the agent's memory of a table read
+  dozens of turns earlier; the scaffold checklist deleting itself before
+  review; and `progress.py`'s own catch-up advice cutting the contact
+  sheets first. No fix applied yet — the ranked list is in the session
+  transcript; wiring R1/R5/R7 into `validate.py` as AST checks that read
+  `AUDIENCE` is the top item.
+- **The environment question, answered with numbers.** A "test run" inside
+  this repo cannot measure what a real install produces, and the skill's
+  own test-run rule is powerless against the main reason: `CLAUDE.md`
+  symlinks to a 278-line `AGENTS.md` that the *harness* injects before any
+  skill is invoked. The rule can forbid reading `HANDOFF.md` and other
+  decks; it cannot un-inject the architecture doc. Also non-reproducible:
+  11 prior decks, and accumulated `slides/`/`media/`/`webrunner_output/`
+  that `frames.py` and `blankspace.py` read from. Framework *code* was not
+  a contaminant — the working tree was clean.
+- **Distribution built, so a run can start from nothing.**
+  `npx open-manim-slides@latest new <dir>` creates a project with its own
+  venv, the framework installed, the skill files, and an empty `decks/`.
+  Measured end to end at **21 s** with a warm pip cache, so a clean
+  environment per test run is not a cost worth optimising away.
+  - **The skill files were never in the wheel.** `packages =
+    ["src/open_manim_slides"]` shipped library code and no `create-deck`,
+    so `pip install open-manim-slides` had no documented way to be driven.
+    Fixed with a `force-include` of `.agents/skills` to
+    `open_manim_slides/_skills`; `init` copies them back out. One source
+    of truth, and it makes the pipx/uvx paths work for free.
+  - **A real bug fell out of the first fresh install**: `doctor` — whose
+    entire job is to report that manim is missing or failed to build —
+    crashed with `ModuleNotFoundError: No module named 'manim'`, because
+    the console script's import ran `__init__.py`'s eager re-exports.
+    Fixed by making `__init__` lazy (PEP 562), with a subprocess test
+    asserting `import open_manim_slides` leaves `manim` out of
+    `sys.modules`. This is the likeliest state of a first install:
+    `manimpango` compiles against system cairo/pango.
+  - **A fresh install resolves manim 0.21.0; this repo runs 0.20.1**, and
+    every motion recipe was verified against 0.20.1. So "fresh framework
+    every time" is also "different manim every time" — the dev repo is the
+    *more* stable environment, the opposite of the intuition. The
+    framework itself works on 0.21 (scaffold → `validate` clean → `-ql`
+    render → HTML export carrying the navigation script, all verified in
+    the fresh project), so this is a drift risk rather than a break;
+    `doctor` now says when the installed manim differs from
+    `VERIFIED_MANIM`. Whether to bound manim in `pyproject.toml` is a
+    distribution-policy call left to the user.
+  - Not published to npm or PyPI. Both names are free (checked). The
+    default `--from git` needs no registry, so the whole thing works today
+    via `npx <local-tarball>` or a git URL; publishing is outward-facing
+    and stays the user's decision.
+- Bearing on the recurring flash report: of 13 exported decks on disk only
+  the newest (2026-08-27) carries the `instant_navigation` script, and
+  `webrunner_output/` is a permanent static mount, so **every pre-fix
+  export is still live at its original URL** — reachable from browser
+  history or a bookmark, and it will flash regardless of how carefully the
+  deck was generated. A per-run fresh project removes that class. The
+  browser navigation test ran (not skipped — Firefox present) and passed.
+- Test count: 141 → 155.
+
+**Sixteenth session (2026-08-28, same day)** — Enforcement moved into the
+authoring context, driven by transcript evidence rather than by adding
+checks.
+
+- **What the logs showed.** Six build sessions were mined from
+  `~/.claude/projects/.../*.jsonl` (tool calls with timestamps) alongside
+  `media/progress/*.json`. `validate.py` worked exactly as designed and
+  still did not save the run: it cut cost *per* iteration (~9 s render →
+  ~2 s validate) while leaving the iteration *count* untouched. The
+  pre-validate build ran **23 renders** in `AUTHOR RENDER AUTHOR RENDER`
+  cycles (511 assistant turns); the validate-driven build ran **15
+  validates across 54 edits** in `AUTHORx4 VALIDATE AUTHORx3 VALIDATE
+  AUTHORx10 VALIDATE` cycles (295 turns). Of 38 validate runs across the
+  four build sessions, 24 passed — most invocations were confirmations,
+  not discoveries. Session ten's finding (round-trip *count*, not machine
+  time, is what a build spends) held, and the cheaper check did not
+  address it.
+- **What the failures actually were**, from the same logs: ten-plus
+  `AttributeError: object has no attribute 'figure' / 'roof_fig' / 'fan' /
+  'span' / 'concrete'` — segment-to-segment state handoff, surfacing as a
+  cascade several segments from the typo — and twelve overlap /
+  safe-frame failures at invented per-segment coordinates. **Both are
+  decided before any check can run.** A check can only report them after
+  the code exists, which is the round trip.
+- **The fix: `scaffold.py` now emits authoring context, not just stubs.**
+  It takes the plan table's own columns (`Segment(name, shows, carries,
+  produces)`) and writes a composition block of named slots derived from
+  the real frame, a declaration of every cross-segment attribute, and per
+  segment its carried-in names, its hand-off names and the audience's
+  play/word budget. Then the agent positions against `COL_LEFT_X` instead
+  of guessing `-3.5`, and writes `self.roof_fig` in both places because
+  the name is already in the file.
+  - **Declarations are annotations, never assignments.** `fig: Mobject`
+    documents the name without creating the attribute, so a missed handoff
+    still raises loudly — by name, locally. `fig = None` would have traded
+    a loud failure for a silent `None` flowing downstream; that is worse,
+    and there is a test pinning it.
+  - **`check_plan()` rejects the plan itself**, before any code exists: a
+    carried name no earlier segment produces, or a third cleared start
+    (R1). R1 finally has a real gate, and it is at the cheapest possible
+    moment — the previous "check" ("count the segment-opening `FadeOut`s
+    ≤ 2") was self-graded and, measured literally against past decks,
+    failed 5-7 times per deck while every run reported compliance.
+  - **The composition constants floor rather than round.** A test caught
+    this while being written: rounding the column half-width put the
+    outer edge at 6.62 against a 6.61 safe bound, so the slots meant to
+    guarantee safe placement would themselves have failed the check.
+- **Verified end to end**: a two-segment deck authored using only the
+  emitted slots and declared names passed `validate` on the **first
+  attempt**, with no round trip — and the same scaffold runs in the fresh
+  `npx` project on manim 0.21.
+- `SKILL.md` rewired so step 2's table is step 3's input: the two
+  `self.x` columns are named as attribute names, the composition section
+  now says "you do not have to invent the numbers", and step 4's example
+  authors against the slots and the declared hand-off.
+- Test count: 155 → 169.
+- Still prose-only, deliberately unaddressed here: R2, R3, R4, R6, R7.
+  They are content judgements rather than structure, and the round-trip
+  evidence does not implicate them — the review loop catches them at a
+  cost the logs show is already low.
+
+**Seventeenth session (2026-08-28, same day)** — Next step 10 closed, and
+two of the prose-only content rules given real gates. Everything below was
+measured against all 11 local decks (77 segments) before it was built.
+
+- **The `decorative`/safe-framed pair check exists now** —
+  `TextOnDecorative`, reported by `validate.py` off `base.py`'s
+  `find_text_over_decorative()`. The rule that works is **decorative *ink*
+  vs tracked *text* box**, and each narrowing was forced by a measurement:
+  - bbox-vs-bbox, the obvious rule, reports **25** findings — a brace
+    hugging a side, ticks poking off a meter — nearly all benign. Testing
+    the strokes instead reports 7, all real.
+  - the strokes have to be walked as a *polyline* through each leaf's
+    Bezier control points. Testing the control points alone misses the
+    canonical case outright: a `Line` has four, all at its ends, so an
+    axis running straight through a caption contains none of them.
+  - only **text** is tested. Non-text over a backdrop is routinely
+    correct — a plotted curve crosses its own axis by construction — and
+    that ambiguity is the whole reason `decorative=True` exists.
+  - a backdrop whose bbox *contains* the text is framing it, not colliding
+    with it (`SurroundingRectangle`), and is skipped.
+  - clearance 0.08 sits mid-plateau: the finding set is **identical** from
+    0.0 to 0.08, and the first false positive lands at 0.12 (a label docked
+    just outside the figure it belongs to). It is a collision detector; a
+    real clearance policy flags deliberate work.
+- **Positive control, because a check that reports nothing proves
+  nothing.** Session fourteen's caption-through-tick-numbers bug was
+  reconstructed by reverting the 0.45 figure lift that fixed it; the check
+  reports `axes → caption` across six segments. It then found **two live
+  collisions in decks that pass everything else**, both confirmed against
+  the rendered frames: a marker stroke merging into the top of an `∫`
+  glyph (`dominated_convergence`), and an `=` sign touching the box drawn
+  around the result, in six segments of `basic_calculations`.
+- **R2 and R4 are counted now, not self-graded** (`NoChangeAnimation`,
+  `UnperformedAction`), and `AUDIENCE` — written by `scaffold.py` since
+  session sixteen and read by nothing — is finally what sets R2's floor.
+  The evidence for wiring them: **19 R2 findings, every one in a deck
+  written before the rule existed; zero in the seven written under it.**
+  That is the profile worth gating on — it fires on the past and is silent
+  on the present, so it is regression prevention, not discovery. Segment 0
+  is exempt (a cleared opening has nothing to change yet), which is the
+  single flag it otherwise raises on a current deck.
+  - Emphasis has to be excluded **by class, before descending**:
+    `Indicate` is a `Transform` subclass and `Circumscribe`/`Flash` are
+    `AnimationGroup`s, so the obvious isinstance test accepts a pulse as
+    the segment's change — precisely what R2 says doesn't count.
+- **R7 was the wrong next candidate, and the corpus says so.** Step 10
+  named it as the remaining AST check. Measured: the longest prose string
+  in any deck is 11 words against a 12-word cap, and the largest
+  on-screen total is 14 against 25 — **zero violations anywhere, including
+  in the decks that predate the rule**. Not built. R3 and R5 were measured
+  too (2 findings each, both pre-rules) and left out for the same reason:
+  the yield does not pay for the surface.
+- **A real harness bug fell out of the measurement.** `_instant_play` never
+  replicated `Scene.compile_animation_data`'s
+  `add_mobjects_from_animations`, so mobjects a real render puts on screen
+  (four `Transform`ed polygons in `pythagorean_v2`) were absent from
+  `scene.mobjects` in the harness. Harmless for the existing checks — they
+  read `_active_ids`, not the scene graph — but it silently corrupted R2's
+  count until fixed, and would corrupt any future scene-graph check.
+- **The Liang-Barsky branches were inverted in the first implementation**,
+  and both the probe and the shipped code carried the same error, so the
+  corpus numbers agreed with each other while measuring the wrong
+  predicate. A unit test written from the canonical case (a line through a
+  caption) caught it; every number above is post-fix. Worth remembering
+  that a measurement and the code it validates sharing an author is not
+  independent confirmation.
+- Test count: 169 → 187. `SKILL.md`'s review step drops its two source
+  greps (R2/R4 are counted upstream now) and keeps the judgement they were
+  standing in for.
+
 ## Immediate next steps (priority order)
 
 1. ~~Build `assert_no_overlap`~~ — **DONE** (session two).
@@ -590,7 +852,20 @@ no reference decks and under time pressure ("don't fix the slide").
    this area is ever suspected again, run
    `python -m open_manim_slides.playback <exported.html>` first — it
    answers the question mechanically instead of by eye.
-10. **Deck series — shared context across related decks** (user's idea,
+10. ~~The `decorative` / safe-framed pair check~~ — **DONE** (session
+    seventeen), as `TextOnDecorative`, alongside R2 and R4 as counted
+    checks. R7 was measured and deliberately not built: zero violations
+    across all 11 decks, including the four that predate the rule. R3 and
+    R5 likewise (2 findings each, both pre-rules). What remains prose-only
+    is R6 (semantic color), which has no mechanical proxy, and the
+    judgement halves of R2/R4 — whether the change carries the idea, and
+    which animation performs which verb.
+11. **Publish decision** — `open-manim-slides` is free on both npm and
+    PyPI, and `npm/` is built and verified locally against a packed
+    tarball. Publishing is outward-facing, so it waits on the user. Once
+    published, `--from pypi` pins the framework to the npm package's own
+    version.
+12. **Deck series — shared context across related decks** (user's idea,
     not yet built). Every `create-deck` run is currently independent, so
     a second deck on the same topic re-decides everything the first one
     already settled: which color means which quantity, how the
