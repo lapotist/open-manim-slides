@@ -9,6 +9,34 @@ instructions file.
 Status: early scaffold, under active development. See `HANDOFF.md` and
 `AGENTS.md` for design background and conventions.
 
+## Quick start
+
+Create a fresh deck project — a virtualenv with the framework installed,
+the `create-deck` skill files, and an empty `decks/` directory:
+
+```bash
+npx open-manim-slides@latest new my-deck
+cd my-deck && source .venv/bin/activate
+```
+
+Then open the directory with your coding agent and ask it to build a deck.
+`@latest` fetches the newest published version every time, so each project
+starts from a clean, current framework rather than whatever a long-lived
+checkout has accumulated — which is what you want when you are measuring
+how well the workflow itself performs.
+
+No Node? The same bootstrap without it:
+
+```bash
+pipx run --spec open-manim-slides open-manim-slides init my-deck   # or uvx
+```
+
+Check the system dependencies at any time:
+
+```bash
+open-manim-slides doctor
+```
+
 ## Requirements
 
 - Python >= 3.10

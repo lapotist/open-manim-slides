@@ -24,5 +24,19 @@ web = [
     "uvicorn",
 ]
 
+[project.scripts]
+open-manim-slides = "open_manim_slides.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/open_manim_slides"]
+
+# The authoring workflow *is* part of the framework: a wheel without the
+# skill files installs library code the user has no documented way to
+# drive. Canonical copies stay at the repo root (agent-agnostic, and where
+# the dev repo's own .claude/ symlink points); the build folds them into
+# the package so `open-manim-slides init` can copy them back out.
+[tool.hatch.build.targets.wheel.force-include]
+".agents/skills" = "open_manim_slides/_skills"
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", ".agents", "README.md", "LICENSE", "pyproject.toml"]

@@ -1,0 +1,30 @@
+{
+  "name": "open-manim-slides",
+  "version": "0.1.0",
+  "description": "Create a fresh Manim Slides deck project driven by an AI coding agent: npx open-manim-slides new my-deck",
+  "bin": {
+    "open-manim-slides": "bin/cli.js"
+  },
+  "files": [
+    "bin/",
+    "README.md"
+  ],
+  "keywords": [
+    "manim",
+    "manim-slides",
+    "slides",
+    "presentation",
+    "claude",
+    "agent",
+    "skill"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lapotist/open-manim-slides.git"
+  },
+  "homepage": "https://github.com/lapotist/open-manim-slides",
+  "engines": {
+    "node": ">=16"
+  }
+}
