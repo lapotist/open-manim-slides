@@ -251,9 +251,12 @@ dependency `manimpango` to build (see `README.md`).
   wrong scene. It also reports
   `ConflictingAnimations` — two animations in one `play()` whose mobject
   *families* intersect, the classic case being `FadeOut(group)` alongside
-  `Transform(child_of_group, ...)`. Manim 0.20 can deadlock its encoder on
-  that: the render hangs at 0% CPU with no traceback and no further
-  partial movie files, so it reads as a slow render rather than a bug.
+  `Transform(child_of_group, ...)`. This was observed to deadlock manim
+  0.20's encoder: the render hangs at 0% CPU with no traceback and no
+  further partial movie files, so it reads as a slow render rather than a
+  bug. Not re-tested on 0.21 and deliberately not re-tested — the check is
+  structural, so it costs nothing to keep whether or not the hang
+  survived.
   The harness cannot reproduce the hang (it applies animations one at a
   time), which is exactly why the check is structural rather than
   behavioural. Failures downstream of another are
@@ -300,8 +303,8 @@ dependency `manimpango` to build (see `README.md`).
   `.agents/skills` as `open_manim_slides/_skills` and `init` copies them
   back out into a project (plus a minimal `AGENTS.md`, its `CLAUDE.md`
   symlink, a `.claude/skills` projection, and `decks/`). That generated
-  `AGENTS.md` is deliberately short: this repo's own is 278 lines of
-  internals that the harness auto-loads through `CLAUDE.md` before any
+  `AGENTS.md` is deliberately short: this repo's own is several hundred
+  lines of internals that the harness auto-loads through `CLAUDE.md` before any
   skill runs, which is exactly the context a real user does not have —
   reproducing it in generated projects would rebuild the leak that the
   skill's test-run rule exists to avoid, and cannot itself prevent.
