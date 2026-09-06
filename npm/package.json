@@ -1,6 +1,6 @@
 {
   "name": "open-manim-slides",
-  "version": "0.1.0",
+  "version": "0.1.0-dev.1",
   "description": "Create a fresh Manim Slides deck project driven by an AI coding agent: npx open-manim-slides new my-deck",
   "bin": {
     "open-manim-slides": "bin/cli.js"

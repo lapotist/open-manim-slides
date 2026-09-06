@@ -4,15 +4,35 @@ build-backend = "hatchling.build"
 
 [project]
 name = "open-manim-slides"
-version = "0.1.0"
+version = "0.1.0.dev1"
 description = "An open-source framework for building Manim Slides presentations, with a controlled scaffold and Claude Code Skills for authoring and editing."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
+authors = [{ name = "lapotist" }]
+keywords = ["manim", "manim-slides", "slides", "presentation", "agent", "skill"]
+# No license classifier: `license = "MIT"` above is a PEP 639 expression, and
+# the two together are a metadata conflict.
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Education",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Education",
+    "Topic :: Multimedia :: Video",
+]
 dependencies = [
     "manim",
     "manim-slides",
 ]
+
+[project.urls]
+Homepage = "https://github.com/lapotist/open-manim-slides"
+Repository = "https://github.com/lapotist/open-manim-slides"
+Issues = "https://github.com/lapotist/open-manim-slides/issues"
 
 [project.optional-dependencies]
 dev = [
