@@ -35,6 +35,27 @@ why they're rules:
 If it fires on genuinely misplaced content, move the content. If it
 fires on a backdrop/containment pair (below), flag the backdrop.
 
+### `allow=` — overlap that is the design
+
+Some overlaps are correct and always will be: the lens of a Venn
+diagram, a label deliberately centred on the region it names, a stack of
+cards. Name the pair rather than removing the check:
+
+```python
+self.assert_no_overlap_among_tracked(allow=[("set-a", "set-b")])
+```
+
+An entry may also be a bare id, which lets that one element overlap
+anything (an overlay, a full-frame wash). Prefer the pair: it stays a
+real check on everything else, and it says in the file *which* two things
+are meant to touch, which the next edit needs to know.
+
+This exists because the two things authors reached for instead were both
+worse. Deleting the scaffolded call removes the check silently, with
+nothing to notice it. `decorative=True` exempts the element from every
+comparison, and is forbidden outright for a segment's subject. `allow=`
+is narrower than either and leaves the intent written down.
+
 ### `decorative=True` — narrow, exact criteria
 
 The overlap check compares axis-aligned bounding boxes, which are a

@@ -65,9 +65,16 @@ dependency `manimpango` to build (see `README.md`).
     still on screen for, not just the segment `track()` was called in.
     Duplicate `id` within one segment raises; reuse across segments is
     expected.
-  - `assert_no_overlap_among_tracked()` — pairwise overlap check across
-    every currently-active, non-decorative tracked element. Scaffolded
-    decks call this automatically at the end of every segment.
+  - `assert_no_overlap_among_tracked(allow=...)` — pairwise overlap check
+    across every currently-active, non-decorative tracked element.
+    Scaffolded decks call this automatically at the end of every segment.
+    `allow` names overlaps that are the design (a Venn lens, a label on
+    its region, a card stack): an entry is either a pair of ids, which
+    exempts only that pair, or a single id, which lets it overlap
+    anything. It exists because the two things authors reached for
+    instead were worse — deleting the scaffolded call removes the check
+    with nothing to notice, and `decorative=True` exempts the element
+    from every comparison and is forbidden for a segment's subject.
   - `track(mobj, id="...", decorative=True)` opts an element out of that
     check while still recording it in the manifest — for backdrop/
     indicator geometry (axes, guide circles, a `SurroundingRectangle`)
@@ -192,9 +199,25 @@ dependency `manimpango` to build (see `README.md`).
   - `check_plan()`, which runs at scaffold time and **rejects the plan**
     if a segment carries a name no earlier segment produces (the
     `AttributeError`-cascade class, killed before any code exists) or if
-    more than `MAX_CLEARED_STARTS` segments begin from a cleared frame
-    (R1). Segment count against the audience is returned as an advisory
-    note, not raised — a deliberate outline may differ.
+    more than `max_cleared_starts` segments begin from a cleared frame
+    (R1; `None` lifts it). Segment count against the audience is returned
+    as an advisory note, not raised — a deliberate outline may differ.
+
+  Two axes are configurable, and `resolve_options()` settles both from an
+  explicit argument, then `open-manim-slides.json` in the project root,
+  then the mode's default. The project owner pins the choice once; the
+  agent never re-decides it per build, which would be a fresh source of
+  exactly the inconsistency the composition block removed.
+  - `mode` — `"simple"` (two-column composition, star import, the full
+    checklist, R1 enforced) or `"advanced"` (no composition block, curated
+    imports, a short stub, no R1 ceiling). **The line between them is
+    deliberate: advanced relaxes the pre-commitment gates, never the
+    correctness checks.** Composition, the cleared-start ceiling and the
+    checklist are house style, and a deck may have a good reason to
+    differ; safe frame, overlap, conflicting animations, illegible morphs,
+    R2 and R4 catch defects, and `validate` behaves identically under both.
+  - `imports` — `"all"` (default), `"curated"` (the names the documented
+    recipes use), `"minimal"` (framework only), or an explicit list.
 
   The motivation is measured, from six real build transcripts: `validate`
   made each check ~4.5× cheaper without reducing how *often* the agent
@@ -398,6 +421,21 @@ content, not curated public examples yet (see `HANDOFF.md`).
 ```bash
 pytest
 ```
+
+`tests/fixtures/corpus/` is the **validation corpus**, driven by
+`tests/test_corpus.py`. Half the fixtures are wrong on purpose and pin
+that each gated finding *can* fire, with the exact finding it must
+produce. The other half are correct decks built from constructs the
+framework recommends, and are the false-positive guard: run any proposed
+new check against them before shipping it, because a rule that reports
+correct work teaches the author to ignore every report. They are
+deliberately heterogeneous in composition so that passing the corpus does
+not quietly become matching one house style. **They are test data, never
+examples** — the directory is named `corpus/` rather than `decks/` partly
+so `create-deck`'s test-run rule and the `decks/` gitignore both leave it
+alone. Session eighteen's tracker bug is why it exists: R2 was measured
+against decks that already existed, and the recipes a rule *invites* are
+what a corpus of past work cannot contain.
 
 `doctor` lists latex as *optional*, so the tests that compile a `MathTex`
 skip without it rather than failing, the same way the browser test skips

@@ -725,6 +725,68 @@ is what a review from inside the project reliably misses.
   `-ql` render → `frames` → `blankspace` → HTML export with the enum
   quoting and the instant-navigation script both intact.
 
+- **The validation corpus, built** (`tests/fixtures/corpus/`, driven by
+  `tests/test_corpus.py`). The user's objection to a reference deck was
+  correct and is the reason this is not one: a single canonical deck put in
+  front of every agent costs exactly the presentational freedom the seven
+  rules were written to protect, and the repo already fights that with
+  `exemplar.md`'s anti-copy line and the test-run rule. What was missing is
+  a different artifact, and it must not be good. Nine fixtures are wrong on
+  purpose, one per gated finding, pinning that the check *can* fire and
+  with what — the standard the browser test was held to in session
+  thirteen, applied to the headless checks. Five are correct decks built
+  from constructs the framework recommends, and they are the expensive
+  half: the false-positive guard a proposed check is run against before it
+  ships. They are deliberately heterogeneous (driven diagram, dissection,
+  centred summary, boxed result, equation step) so passing the corpus does
+  not silently become matching one house style.
+  - **Writing it found three real defects in the fixtures themselves**, all
+    caught by the checks under test: `Indicate(x)` beside `x.animate` in
+    one play is a genuine `ConflictingAnimations`; shifting a result out
+    from under its own `SurroundingRectangle` is a genuine
+    `TextOnDecorative`. Both were my mistakes and the checks were right.
+  - **One observation left unfixed, deliberately.** R4 scans headings, so
+    an opening segment headed "A Moving Point" is reported for promising an
+    action nothing performs yet — true by the letter of the rule, arguable
+    by its intent, since R2 exempts segment 0 for the same reason and R4
+    does not. Changing R4 needs a measurement, and the corpus is one
+    session old. Recorded here rather than patched.
+  - `corpus/`, not `decks/`: the gitignore's bare `decks/` pattern matches
+    at any depth, so `tests/fixtures/decks/` would have been silently
+    untracked. The name also keeps it clear of the test-run rule.
+- **Two configurable axes, and the design question is who chooses.** The
+  user asked for customizable imports and a simple/advanced split. An
+  option the *agent* re-picks every build is a fresh source of the
+  inconsistency the composition block was added to remove, so both resolve
+  from an explicit argument, then `open-manim-slides.json` in the project
+  root, then the mode default. The project owner pins it once; the skill
+  tells the agent to pass nothing.
+  - `imports`: `"all"` (default star import), `"curated"` (the names the
+    documented recipes use, which reads better and states the house
+    vocabulary at the cost of one edit when a deck needs something else),
+    `"minimal"` (the pre-session-18 bare file, kept as an explicit choice
+    so nobody falls back into it), or an explicit list.
+  - `mode`: `"simple"` or `"advanced"`. **The line between them is the
+    whole design: advanced relaxes the pre-commitment gates, never the
+    correctness checks.** Composition, R1's cleared-start ceiling and the
+    stub checklist are house style, and a deck may have a good reason to
+    differ. Safe frame, overlap, conflicting animations, illegible morphs,
+    R2 and R4 catch defects, and `validate` is byte-identical under both.
+    Without that line "advanced mode" would just mean "the checks are
+    optional", which is the state the framework exists to leave.
+- **`assert_no_overlap_among_tracked(allow=...)`** — the gap "remove some
+  restrictions" actually pointed at. The framework had no sanctioned way to
+  say two things overlap on purpose (a Venn lens, a label on its region, a
+  card stack). The two things an author reached for instead were deleting
+  the scaffolded call, which is silent and rule-forbidden, and
+  `decorative=True`, which exempts the element from every comparison and is
+  forbidden for a subject. `allow` takes a pair of ids, exempting only that
+  pair, or a single id. It is narrower than either workaround and leaves
+  the intent in the file where the next edit can read it.
+- **Verified**: 227 tests. `init --mode advanced` writes the settings file,
+  and a deck scaffolded afterwards with no arguments picks it up — no
+  composition block, curated imports, brief stub — and executes.
+
 ## Immediate next steps (priority order)
 
 Done and folded into the history above: `assert_no_overlap` and its

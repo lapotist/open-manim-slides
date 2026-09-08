@@ -82,7 +82,11 @@ Two framework rules with no error message when violated, so they live
 here: **never delete the scaffolded
 `self.assert_no_overlap_among_tracked()` line**, and **never mark a
 segment's subject `decorative=True`** (exact criteria for that flag:
-`framework-rules.md`). Marking something decorative no longer hides it
+`framework-rules.md`). When two things overlap *on purpose* — a Venn
+lens, a label sitting on its region, a card stack — name the pair:
+`self.assert_no_overlap_among_tracked(allow=[("lens-a", "lens-b")])`.
+That keeps the check on everything else and puts the intent in the file.
+Deleting the call and reaching for `decorative` are still both wrong. Marking something decorative no longer hides it
 completely — `validate` reports text landing on a decorative element's
 strokes — but it does still remove it from the overlap check, so the rule
 stands.
@@ -216,6 +220,15 @@ Targets, checked mechanically in step 6: **every segment ≥ 20% fill, no
 region ≥ 15% of the frame left unused by the whole deck.**
 
 ## 3. Scaffold (deterministic, not freehand)
+
+**The project already chose its mode; you do not.** If the project root
+has an `open-manim-slides.json`, `new_deck` reads it and you pass nothing
+extra. `simple` gives you the two-column composition, a star import and
+the full checklist. `advanced` hands the composition back to you, imports
+a curated list and drops the R1 ceiling — more room to present a topic
+its own way, fewer rails to lean on. Neither changes what `validate`
+enforces. If the user asks for one during step 1, pass `mode="advanced"`
+below; otherwise say nothing and take the project's default.
 
 Feed it the table — every column, not just the names. The plan is the
 input to the file's structure, so nothing you decided in step 2 has to be
