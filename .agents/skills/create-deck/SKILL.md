@@ -202,6 +202,16 @@ ROW_Y = (1.9, 0.9, -0.1, -1.1, -2.1)  # text rows, top-down
 Decide here — not while debugging a layout — where you deviate (a
 full-width title, a summary that centres).
 
+**If the deck is not two columns, say so at scaffold time** rather than
+placing against slots you are going to ignore. A deck built around one
+central figure — a number line the whole lesson lives on, a dissection
+proof, a single growing diagram — is a real shape, and
+`new_deck(..., composition="none")` omits the column block for it (you
+then own placement, and `two_column(left, right)` is imported for the
+within-segment pairs). What is *not* a shape is taking the two-column
+file and centring everything in it anyway: that leaves both columns
+unclaimed, and `blankspace` will report the two dead sides in step 6.
+
 Targets, checked mechanically in step 6: **every segment ≥ 20% fill, no
 region ≥ 15% of the frame left unused by the whole deck.**
 
