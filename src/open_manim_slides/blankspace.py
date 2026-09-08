@@ -74,8 +74,12 @@ MIN_CELL_FILL = 0.005
 # Report a never-used region only once it is worth restructuring for.
 MIN_REPORTABLE_DEAD_FRACTION = 0.08
 
-# Below this, a segment's final frame is mostly background.
-SPARSE_SEGMENT_FILL = 0.15
+# Below this, a segment's final frame is mostly background. Set to the
+# same number `create-deck`'s review acts on ("fix a segment under 20%
+# fill"), because a tool whose flag and the workflow's trigger disagree
+# leaves a segment at 18% unflagged here and mandatory to fix there -- and
+# an author reading the flag rather than the number is then wrong.
+SPARSE_SEGMENT_FILL = 0.20
 
 
 class BlankSpaceError(RuntimeError):

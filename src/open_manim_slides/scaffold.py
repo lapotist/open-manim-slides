@@ -97,6 +97,23 @@ def _class_name(title: str) -> str:
     return "".join(word.capitalize() for word in words) or "Deck"
 
 
+#: Where `theme.heading()` actually puts a one-line 36pt heading, and the
+#: first text row beneath it. Both are emitted into the deck so a segment
+#: can reserve the band instead of measuring it again.
+HEAD_Y = 3.15
+ROW_Y = (1.9, 0.9, -0.1, -1.1, -2.1)
+
+
+def _slot(name: str, value: object, comment: str) -> str:
+    """One composition constant, with its comment column aligned.
+
+    Aligned by width rather than by hand-counted spaces: a negative slot
+    value is one character wider than its positive twin, which used to push
+    `COL_LEFT_X`'s comment out of line with every other row.
+    """
+    return f"{name} = {value!r}".ljust(38) + f"# {comment}"
+
+
 def _composition_block() -> list[str]:
     """Named slots for the default two-column composition.
 
@@ -120,15 +137,81 @@ def _composition_block() -> list[str]:
         "# coordinates are what the safe-frame and overlap failures in past",
         "# builds were made of. Deviate deliberately (a full-width title, a",
         "# centred summary) -- just not by accident.",
-        f"SAFE_X = {safe_x}          # |x| any element must stay within",
-        f"SAFE_Y = {safe_y}           # |y| any element must stay within",
-        "HEAD_Y = 3.0           # heading() sits here; leave this band clear",
-        f"COL_LEFT_X = {-col_centre}      # centre of the figure column",
-        f"COL_RIGHT_X = {col_centre}      # centre of the accumulating-text column",
-        f"COL_W = {round(col_half * 2, 2)}           # size the figure to FILL this, not float in it",
-        "ROW_Y = (1.9, 0.9, -0.1, -1.1, -2.1)   # text rows, top-down",
+        _slot("SAFE_X", safe_x, "|x| any element must stay within"),
+        _slot("SAFE_Y", safe_y, "|y| any element must stay within"),
+        # Measured, not guessed: `heading()` pins the text's *top* at
+        # frame_height/2 - (margin + SPACING_XS) = 3.35, so a one-line 36pt
+        # heading centres at ~3.11-3.16 and its lowest descender lands near
+        # 2.86. Anything else in this band collides with the heading, which
+        # is why the reserved floor is stated rather than left to be
+        # rediscovered per deck.
+        _slot("HEAD_Y", HEAD_Y, "heading() centres here; keep everything else below 2.8"),
+        _slot("COL_LEFT_X", -col_centre, "centre of the figure column"),
+        _slot("COL_RIGHT_X", col_centre, "centre of the accumulating-text column"),
+        _slot("COL_W", round(col_half * 2, 2), "size the figure to FILL this, not float in it"),
+        _slot("ROW_Y", ROW_Y, "text rows, top-down"),
         "",
     ]
+
+
+#: Names from `theme.py` every deck is told to prefer over literal numbers.
+#: `two_column` is deliberately absent whenever a composition block is
+#: emitted: it centres its halves on their own content width, so the column
+#: centres move from segment to segment -- the exact per-segment placement
+#: `COL_LEFT_X`/`COL_RIGHT_X` exist to replace. Offering both in one file
+#: is offering two layout systems and no way to choose.
+_THEME_NAMES = (
+    "COLOR_ACCENT",
+    "COLOR_ACCENT_2",
+    "COLOR_MUTED",
+    "COLOR_TEXT",
+    "FONT_SIZE_BODY",
+    "FONT_SIZE_CAPTION",
+    "FONT_SIZE_HEADING",
+    "FONT_SIZE_TITLE",
+    "SPACING_LG",
+    "SPACING_MD",
+    "SPACING_SM",
+    "SPACING_XL",
+    "SPACING_XS",
+    "diagram_with_caption",
+    "heading",
+    "title_slide",
+)
+
+
+def _import_block(composition: str) -> list[str]:
+    """Everything a segment is going to reach for, imported up front.
+
+    Transcript evidence names "adding an import in one turn and using it in
+    the next" as one of the things that makes a build balloon, and the file
+    used to arrive with two imports for a workflow whose own examples use
+    `np.array`, `heading()`, `Text`, `VGroup`, `Transform` and a colour
+    token in the first ten lines. Every one of those was a round trip.
+
+    `from manim import *` rather than a curated list, and the choice is the
+    point: any list is complete for the deck that was in mind when it was
+    written and wrong for the next one, which puts the author back in the
+    edit-then-use cycle *and* leaves them guessing whether extending the
+    list is allowed. The star import is also manim's own documented
+    convention -- every upstream tutorial opens with it -- and a deck file
+    is a leaf artifact, not library code someone imports from.
+    """
+    names = list(_THEME_NAMES)
+    if composition != "two-column":
+        # No fixed column centres in this file, so the content-width
+        # template is the right tool rather than a competing one.
+        names.append("two_column")
+    lines = [
+        "import numpy as np",
+        "from manim import *  # noqa: F403 - manim's own documented convention",
+        "",
+        "from open_manim_slides import Slide, assert_within_safe_frame",
+        "from open_manim_slides.theme import (",
+    ]
+    lines += [f"    {name}," for name in sorted(names)]
+    lines += [")", ""]
+    return lines
 
 
 def _state_block(segments: list[Segment]) -> list[str]:
@@ -292,13 +375,8 @@ def render_deck_source(
         seen.add(fn_name)
         fn_names.append(fn_name)
 
-    needs_mobject = any(s.produces or s.carries for s in planned)
-
     lines: list[str] = ['"""', f"{title}", '"""', ""]
-    if needs_mobject:
-        lines.append("from manim import Mobject")
-    lines.append("from open_manim_slides import Slide, assert_within_safe_frame")
-    lines.append("")
+    lines.extend(_import_block(composition))
     if audience is not None:
         lines.append(f'AUDIENCE = "{audience}"')
         lines.append("")
@@ -329,7 +407,11 @@ def new_deck(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / (_slugify(title) + ".py")
+    # UTF-8 explicitly: the title goes into the file's docstring verbatim,
+    # and this project's decks are routinely written in a language the
+    # platform default encoding cannot represent.
     out_path.write_text(
-        render_deck_source(title, segments, audience=audience, composition=composition)
+        render_deck_source(title, segments, audience=audience, composition=composition),
+        encoding="utf-8",
     )
     return out_path

@@ -244,7 +244,13 @@ def convert_to_html(
     converter.convert_to(dest)
 
     if instant_navigation and not zip:
-        html = dest.read_text()
-        dest.write_text(html.replace("</body>", _INSTANT_NAVIGATION_SCRIPT + "</body>"))
+        # UTF-8 explicitly, both ways: the exported page carries the
+        # deck's own text, and `read_text()` would decode it with the
+        # platform default -- cp1252 on Windows, which cannot read a
+        # deck written in anything but Latin-1.
+        html = dest.read_text(encoding="utf-8")
+        dest.write_text(
+            html.replace("</body>", _INSTANT_NAVIGATION_SCRIPT + "</body>"), encoding="utf-8"
+        )
 
     return dest

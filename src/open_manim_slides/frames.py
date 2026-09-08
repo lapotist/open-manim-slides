@@ -53,7 +53,7 @@ def segment_videos(config_path: Path) -> list[tuple[Path, Path]]:
     re-anchors them against the config's parent-of-parent on load, so the
     same resolution is used here.
     """
-    data = json.loads(config_path.read_text())
+    data = json.loads(config_path.read_text(encoding="utf-8"))
     base = config_path.parent.parent
     pairs = []
     for slide in data["slides"]:

@@ -132,3 +132,14 @@ def test_final_report_breaks_total_down_by_phase():
 def test_main_rejects_wrong_arg_count(capsys):
     assert main([]) == 2
     assert "usage" in capsys.readouterr().err
+
+
+def test_a_zero_length_budget_is_rejected_rather_than_stored():
+    """Every fraction-of-budget figure divides by it, so storing 0 made the
+    status line raise `ZeroDivisionError` from inside the tracker whose
+    whole job is to print that line."""
+    from open_manim_slides.progress import ProgressError, parse_budget
+
+    for text in ("0", "0m", "0s"):
+        with pytest.raises(ProgressError, match="zero-length"):
+            parse_budget(text)

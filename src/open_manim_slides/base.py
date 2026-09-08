@@ -143,7 +143,7 @@ class Slide(_BaseSlide):
         self._active_ids.add(id)
         return mobj
 
-    def remove(self, *mobjects: Any) -> None:
+    def remove(self, *mobjects: Any) -> Any:
         """Deactivate tracked ids whose mobject is taken off screen.
 
         Manim mobjects persist once added until explicitly removed --
@@ -154,11 +154,14 @@ class Slide(_BaseSlide):
         instead of only ever recording an appearance for the single segment
         `track()` happened to be called in.
         """
-        super().remove(*mobjects)
+        result = super().remove(*mobjects)
         for id in list(self._active_ids):
             tracked = self._tracked_mobjects.get(id)
             if any(_removal_covers(removed, tracked) for removed in mobjects):
                 self._active_ids.discard(id)
+        # `Scene.remove` returns `Self` so callers can chain; returning
+        # None here would silently break any caller that does.
+        return result
 
     def assert_no_overlap_among_tracked(self) -> None:
         """Check every currently-active, non-decorative tracked element pairwise for overlap.
@@ -271,4 +274,4 @@ class Slide(_BaseSlide):
             "frame_height": config.frame_height,
             "elements": list(self._manifest.values()),
         }
-        out_path.write_text(json.dumps(payload, indent=2))
+        out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

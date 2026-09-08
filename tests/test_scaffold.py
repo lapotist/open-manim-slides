@@ -238,3 +238,75 @@ def test_segments_accept_dicts_from_the_plan_table():
 
     assert '"""the setup"""' in source
     assert "carried in:  self.fig" in source
+
+
+# --- Imports -----------------------------------------------------------
+#
+# The file used to arrive with two imports for a workflow whose own
+# examples use `np.array`, `heading()`, `Text` and a colour token in the
+# first ten lines -- so the first thing every build did was add an import
+# and re-run. These pin that the emitted file can be authored against the
+# skill's documented vocabulary without editing the import block.
+
+
+def test_emitted_file_imports_what_the_workflow_tells_the_author_to_use():
+    source = render_deck_source("Imports", ["intro"])
+
+    assert "import numpy as np" in source
+    assert "from manim import *" in source
+    for name in ("heading", "title_slide", "COLOR_ACCENT", "FONT_SIZE_HEADING", "SPACING_MD"):
+        assert name in source, name
+
+
+def test_two_column_is_not_offered_alongside_a_composition_block():
+    """Two layout systems in one file and no way to choose between them.
+
+    `two_column` centres its halves on their own content width, so the
+    column centres move segment to segment -- which is the placement
+    `COL_LEFT_X`/`COL_RIGHT_X` exist to replace.
+    """
+    with_composition = render_deck_source("Imports", ["intro"])
+    without = render_deck_source("Imports", ["intro"], composition="none")
+
+    assert "two_column" not in with_composition
+    assert "COL_LEFT_X" in with_composition
+    assert "two_column" in without
+
+
+def test_emitted_file_is_importable_and_authorable_as_written(tmp_path: Path):
+    """A syntax or name error in the scaffold costs every build a round
+    trip, so the emitted file is executed here rather than string-matched."""
+    import importlib.util
+    import sys
+
+    path = new_deck(
+        "Runnable Deck",
+        [Segment("open", shows="a square", produces=["fig"])],
+        out_dir=tmp_path,
+        audience="high-school",
+    )
+    spec = importlib.util.spec_from_file_location("runnable_deck", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        # Every name the segment stub's own checklist points the author at
+        # resolves in the emitted module's namespace.
+        for name in ("np", "Text", "VGroup", "Transform", "heading", "COLOR_ACCENT", "COL_LEFT_X"):
+            assert hasattr(module, name), name
+        assert module.RunnableDeck.__name__ == "RunnableDeck"
+    finally:
+        sys.modules.pop("runnable_deck", None)
+
+
+def test_composition_slot_comments_line_up():
+    """A negative value is one character wider than its positive twin, and
+    used to push `COL_LEFT_X`'s comment out of line with every other row."""
+    source = render_deck_source("Aligned", ["intro"])
+    columns = {
+        line.index("#")
+        for line in source.splitlines()
+        if line.startswith(("SAFE_", "HEAD_Y", "COL_", "ROW_Y")) and "#" in line
+    }
+
+    assert len(columns) == 1

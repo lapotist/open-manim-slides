@@ -153,7 +153,7 @@ def init_project(directory: Path, force: bool = False) -> list[str]:
 
     agents_md = directory / "AGENTS.md"
     if not agents_md.exists() or force:
-        agents_md.write_text(PROJECT_AGENTS_MD)
+        agents_md.write_text(PROJECT_AGENTS_MD, encoding="utf-8")
         written.append("AGENTS.md")
     claude_md = directory / "CLAUDE.md"
     if not claude_md.exists() or force:
@@ -164,7 +164,7 @@ def init_project(directory: Path, force: bool = False) -> list[str]:
     decks.mkdir(exist_ok=True)
     gitkeep = decks / ".gitkeep"
     if not gitkeep.exists():
-        gitkeep.write_text("")
+        gitkeep.write_text("", encoding="utf-8")
     written.append("decks/")
 
     return written

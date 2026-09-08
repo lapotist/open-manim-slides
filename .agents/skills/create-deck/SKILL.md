@@ -179,13 +179,13 @@ a composition block already derived from the real frame, and every slot in
 it is inside the safe margin by construction.
 
 ```python
-SAFE_X = 6.61          # |x| any element must stay within
-SAFE_Y = 3.5           # |y| any element must stay within
-HEAD_Y = 3.0           # heading() sits here; leave this band clear
-COL_LEFT_X = -3.45     # centre of the figure column
-COL_RIGHT_X = 3.45     # centre of the accumulating-text column
-COL_W = 6.3            # size the figure to FILL this, not float in it
-ROW_Y = (1.9, 0.9, -0.1, -1.1, -2.1)   # text rows, top-down
+SAFE_X = 6.61                         # |x| any element must stay within
+SAFE_Y = 3.5                          # |y| any element must stay within
+HEAD_Y = 3.15                         # heading() centres here; keep everything else below 2.8
+COL_LEFT_X = -3.45                    # centre of the figure column
+COL_RIGHT_X = 3.45                    # centre of the accumulating-text column
+COL_W = 6.3                           # size the figure to FILL this, not float in it
+ROW_Y = (1.9, 0.9, -0.1, -1.1, -2.1)  # text rows, top-down
 ```
 
 - **Left column** — the figure, sized to *fill* `COL_W` (roughly 5-6
@@ -239,6 +239,13 @@ every handed-off attribute, and one `segment_<name>` method per row —
 each stating what it carries in, what it must hand off, its audience play
 and word budget, and ending in `self.assert_no_overlap_among_tracked()`
 (not optional). The notes are there to be deleted as you satisfy them.
+
+**The imports are already there too** — `numpy as np`, all of `manim`,
+and every theme token and template this skill tells you to prefer over a
+literal. Write the segment; do not edit the import block. (`two_column`
+is the one template deliberately left out: it centres its halves on their
+own content width, so it fights the fixed column slots above. Place
+against `COL_LEFT_X` / `COL_RIGHT_X` instead.)
 
 ## 4. Fill in each segment
 
@@ -331,13 +338,14 @@ prints a progress bar per animation that buries anything useful:
 
 ```bash
 manim render -ql decks/<slug>.py <ClassName> 2>&1 | tail -3
-python -m open_manim_slides.frames <ClassName> > /dev/null
+python -m open_manim_slides.frames <ClassName>
 python -m open_manim_slides.blankspace <ClassName>
 ```
 
 `frames` writes, per segment, a final-frame PNG and a 6-tile contact
-sheet under `media/review/<ClassName>/`. **Read every image — all of
-them in one batch, not one per turn.** `blankspace` measures those same
+sheet under `media/review/<ClassName>/`, and prints their paths — that
+list is the batch to read, so don't discard it. **Read every image — all
+of them in one batch, not one per turn.** `blankspace` measures those same
 stills and prints per-segment fill percentages plus any region **no
 segment ever uses** — do not eyeball emptiness, read its numbers.
 
@@ -413,9 +421,10 @@ at `-ql`, and a whole run's machine time is under three minutes:
 - **Rendering to find layout errors.** Step 5 exists for this. Five
   placement mistakes found one render at a time is five cycles for
   arithmetic that validates in two seconds, all at once.
-- **Unbatched edits.** Adding an import in one turn and using it in the
-  next; fixing one review finding, re-rendering, fixing the next. Group
-  them.
+- **Unbatched edits.** Fixing one review finding, re-rendering, fixing
+  the next. Group them. (The import half of this is gone: the scaffolded
+  file already imports everything the workflow names, so reaching for
+  `np.array` or `COLOR_ACCENT_2` costs nothing.)
 - **Dumping raw tool output.** `tail -100` on a render captures a hundred
   lines of progress bars; `tail -3` carries the same signal.
 - **Re-reading files you just wrote.** Keep track of what you authored

@@ -119,8 +119,14 @@ dependency `manimpango` to build (see `README.md`).
   per-segment heading pinned near the top with slack past the safe
   margin — the `title_slide(...).to_edge(UP)` idiom it replaces put a
   48pt heading exactly on the margin), `two_column()`,
-  `diagram_with_caption()`. Deeper palette work (contrast-checked custom
-  hues) is a future slice.
+  `diagram_with_caption()`. `two_column()` is scoped in its docstring to a
+  pair *inside* one segment: it centres the halves on their own content
+  width (measured at x = -1.05 / +2.00 for one pairing, and both move when
+  either half resizes), so it is exactly the per-segment placement the
+  scaffolded `COL_LEFT_X`/`COL_RIGHT_X` slots exist to replace — the
+  scaffolder therefore omits it from a file that carries a composition
+  block. Deeper palette work (contrast-checked custom hues) is a future
+  slice.
 - `src/open_manim_slides/convert.py` — the project's HTML export path,
   `convert_to_html(...)`, a drop-in replacement for the CLI conversion
   with two fixes:
@@ -159,7 +165,21 @@ dependency `manimpango` to build (see `README.md`).
     `COL_W`, `ROW_Y`, `HEAD_Y`) derived from the real frame, with the
     column half-width **floored** rather than rounded so a slot's outer
     edge cannot land outside the bound it came from — placing against
-    these names cannot fail the safe-frame check;
+    these names cannot fail the safe-frame check. `HEAD_Y` is measured
+    against what `theme.heading()` actually does (it pins the text's *top*
+    at 3.35, so a one-line 36pt heading centres at ~3.11-3.16 with
+    descenders reaching ~2.86) rather than the 3.0 it used to assert, and
+    the slot now states the floor to keep clear instead of leaving it to
+    be rediscovered per deck;
+  - **the imports a segment is going to need** — `numpy as np`, `from
+    manim import *`, and every theme token and template the skill tells
+    the author to prefer over a literal. The star import is deliberate:
+    any curated list is complete for the deck it was written for and wrong
+    for the next one, which puts the author back in the edit-then-use
+    cycle the skill's own "shape of a good run" names as a cost, *and*
+    leaves them guessing whether extending the list is sanctioned. It is
+    also manim's own documented convention, and a deck file is a leaf
+    artifact rather than library code;
   - a **declaration of every cross-segment attribute** as a bare
     annotation. Annotations create no attribute, so a forgotten handoff
     still raises `AttributeError` — the benefit is that the name is
@@ -231,6 +251,14 @@ dependency `manimpango` to build (see `README.md`).
   source — `\tfrac12` is eight characters but one small fraction.
   `FadeTransform`, `TransformMatchingTex`, `.animate`, and shape-to-shape
   transforms are deliberately not flagged.
+  R2 also counts a `ValueTracker` sweep, gated on something already on
+  screen carrying an updater. A tracker stores its number in its own
+  coordinates and is never added to the scene by the recipe that uses it
+  (`always_redraw` adds the *dot*), so the on-screen test could not see it
+  and the framework's own recipe 2 — which R2's rule text names — reported
+  `NoChangeAnimation` while performing the most animated thing a deck can
+  do. Gated rather than granted outright, so sweeping a tracker no figure
+  reads still reports honestly.
   It reports `TextOnDecorative` from `base.py`'s finder above, and two
   content rules that were previously self-graded prose: `NoChangeAnimation`
   (R2 — at least one animation per segment altering something already on
@@ -276,7 +304,10 @@ dependency `manimpango` to build (see `README.md`).
   reserved, not wasted, and only a never-reached cell is dead); and it
   crops the safe margin (which is supposed to be empty). Thresholds bias
   toward under-reporting, so a region it calls dead is genuinely
-  untouched. Answers the `create-deck` review's Q2 mechanically instead
+  untouched. `SPARSE_SEGMENT_FILL` is 0.20, the same number `create-deck`'s
+  review acts on — at 0.15 a segment at 18% carried no flag here while
+  being mandatory to fix there, so an author reading the flag rather than
+  the number was misled by the tool. Answers the `create-deck` review's Q2 mechanically instead
   of by eye.
 - `src/open_manim_slides/playback.py` — navigation check for an exported
   deck, driven through real headless Firefox
@@ -367,6 +398,12 @@ content, not curated public examples yet (see `HANDOFF.md`).
 ```bash
 pytest
 ```
+
+`doctor` lists latex as *optional*, so the tests that compile a `MathTex`
+skip without it rather than failing, the same way the browser test skips
+without Firefox — otherwise a correct checkout on a machine that took the
+framework at its word reports red tests indistinguishable from a real
+regression.
 
 Includes one end-to-end browser test (`tests/test_playback.py`, ~11 s)
 that walks a real exported deck in headless Firefox and fails if any

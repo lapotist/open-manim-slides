@@ -72,7 +72,7 @@ def list_decks(decks_dir: Path = DECKS_DIR) -> list[DeckInfo]:
     if not decks_dir.is_dir():
         return decks
     for path in sorted(decks_dir.glob("*.py")):
-        source = path.read_text()
+        source = path.read_text(encoding="utf-8")
         class_match = _CLASS_RE.search(source)
         if not class_match:
             continue
@@ -139,7 +139,7 @@ async def start_render(deck: DeckInfo) -> RenderJob:
 
 async def _run_render(job: RenderJob) -> None:
     try:
-        source = (DECKS_DIR / job.deck.file).read_text()
+        source = (DECKS_DIR / job.deck.file).read_text(encoding="utf-8")
         total_estimate = max(source.count("self.play("), 1)
 
         proc = await asyncio.create_subprocess_exec(

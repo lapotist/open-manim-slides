@@ -117,7 +117,12 @@ Prefer tokens over numbers, templates over hand-rolled patterns:
 - `title_slide(self, "...", id="title")` — the deck's opening title
   only.
 - `two_column(left, right)` — side-by-side halves, safe-frame-checked
-  as a pair.
+  as a pair. **For a pair inside one segment, not the deck's layout**: it
+  centres the halves on their own content width, so the column centres
+  move whenever either half changes size. When your deck file has a
+  composition block, place against `COL_LEFT_X` / `COL_RIGHT_X` instead —
+  the scaffolder leaves `two_column` out of such a file's imports for
+  exactly this reason.
 - `diagram_with_caption(self, diagram, "...", id="...")` — one
   explanatory line under a figure.
 - Font sizes: `FONT_SIZE_TITLE/HEADING/BODY/CAPTION`. Spacing for every
