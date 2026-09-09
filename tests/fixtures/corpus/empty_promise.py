@@ -12,6 +12,10 @@ class EmptyPromise(Slide):
 
     The caption says the square rotates. The caption moves; the square
     does not.
+
+    The size is load-bearing: R4 scans prose as R7 defines it, so this must
+    stay at caption size. Raise it to heading size and it becomes a title,
+    which `heading_names_the_subject.py` pins as correct.
     """
 
     def construct(self) -> None:

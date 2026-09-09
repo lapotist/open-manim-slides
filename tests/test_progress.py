@@ -143,3 +143,28 @@ def test_a_zero_length_budget_is_rejected_rather_than_stored():
     for text in ("0", "0m", "0s"):
         with pytest.raises(ProgressError, match="zero-length"):
             parse_budget(text)
+
+
+def test_an_unknown_phase_name_is_rejected(tmp_path):
+    """Stored, an unrecognised name reads back as an expected share of
+    zero, so every later call reports BEHIND and advises cutting scope for
+    a run that is on time. Inverting the verdict silently is worse than
+    refusing the call."""
+    from open_manim_slides.progress import mark_phase, start
+
+    start("D", "20m", progress_dir=tmp_path)
+
+    with pytest.raises(ProgressError, match="Unknown phase 'reviewing'"):
+        mark_phase("D", "reviewing", progress_dir=tmp_path)
+
+    assert mark_phase("D", "review", progress_dir=tmp_path).phases[-1]["name"] == "review"
+
+
+def test_the_rejection_names_every_valid_phase(tmp_path):
+    from open_manim_slides.progress import PHASE_ORDER, mark_phase, start
+
+    start("D", progress_dir=tmp_path)
+    with pytest.raises(ProgressError) as caught:
+        mark_phase("D", "typo", progress_dir=tmp_path)
+
+    assert all(phase in str(caught.value) for phase in PHASE_ORDER)

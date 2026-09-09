@@ -262,15 +262,43 @@ def _change_animations(animation: Any, on_screen: set[int], driven: bool = False
 def _on_screen_prose(scene: Any) -> list[str]:
     """Every prose string currently on screen.
 
-    `MathTex`/`Tex` are skipped: R4 scans sentences, and `\\Rightarrow` is
-    not a promise to animate a rotation.
+    Two exclusions, and R7 is what defines the set: "One sentence of prose
+    on screen at a time -- headings, labels, and equations don't count."
+    R4 scans prose, so it scans that same set.
+
+    * `MathTex`/`Tex` are skipped. `\\Rightarrow` is not a promise to
+      animate a rotation.
+    * Text at heading size or larger is skipped. A heading names the
+      segment's subject; it is not a claim about what is happening at this
+      moment. Without this, a deck opening on "A Moving Point" is reported
+      for promising a motion, because an opening segment introduces
+      everything and introductions are not changes -- the exact condition
+      R4 fires on. Segment 0 is where it bites hardest, and R2 already
+      exempts segment 0 for the same underlying reason.
+
+    Size, not track id, decides: `heading()` and `title_slide()` set the
+    font size and an author may not have used either, while a sentence
+    written at heading scale is a heading whatever it was made with. The
+    cost is knowingly accepted -- a real promise typed at 36pt is missed --
+    and it buys R4 never firing on a title, which is what would teach an
+    author to stop naming decks after what they show.
     """
+    from open_manim_slides.theme import FONT_SIZE_HEADING
+
+    # Manim recomputes `font_size` from the mobject's height, so a 36pt
+    # heading reads back as 35.999999999999964 and an exact `>=` misses it.
+    # The theme scale steps 28 -> 36 -> 48, so a whole point of slack
+    # cannot reach the size below.
+    floor = FONT_SIZE_HEADING - 1.0
+
     found: list[str] = []
 
     def walk(mobject: Any) -> None:
         content = text_content(mobject)
         if content is not None:
-            if getattr(mobject, "tex_string", None) is None:
+            font_size = getattr(mobject, "font_size", None)
+            is_heading = isinstance(font_size, (int, float)) and float(font_size) >= floor
+            if getattr(mobject, "tex_string", None) is None and not is_heading:
                 found.append(content)
             return
         for child in getattr(mobject, "submobjects", ()):

@@ -56,14 +56,17 @@ run the checks on your finished deck, don't trust your intent.
   with `get_tex()` under the term being discussed, an arrow from symbol
   to referent, or the previous segment's figure kept alongside. A shape
   nothing refers to doesn't satisfy this.
-- **R4 — If you write it, show it.** Scan every on-screen string for
-  action verbs (*rotate, turn, move, slide, grow, shrink, add, double,
-  halve, fold, flip, sweep, split, combine, rearrange, fill, cover,
-  trace, increase, decrease, cancel, balance*). Each hit needs an
+- **R4 — If you write it, show it.** Scan every sentence of on-screen
+  prose for action verbs (*rotate, turn, move, slide, grow, shrink, add,
+  double, halve, fold, flip, sweep, split, combine, rearrange, fill,
+  cover, trace, increase, decrease, cancel, balance*). Each hit needs an
   animation in that segment performing it. Can't animate it? Delete the
-  sentence — it's a promise the slide doesn't keep. `validate` reports
-  the flagrant case (a verb on screen while nothing but text is animated);
-  matching each verb to the animation that performs it is yours.
+  sentence — it's a promise the slide doesn't keep. **Prose here means
+  what R7 means by it**: headings, labels and equations are exempt, so a
+  deck may be called "A Moving Point" on a slide where nothing has moved
+  yet. `validate` reports the flagrant case (a verb on screen while
+  nothing but text is animated); matching each verb to the animation that
+  performs it is yours.
 - **R5 — At most 6 `self.play()` per segment** (4 for middle school),
   and the heading arrives *with* the first figure, never on its own
   beat: `self.play(Write(head), Create(figure))`. And the reader sets

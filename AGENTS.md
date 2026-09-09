@@ -290,6 +290,16 @@ dependency `manimpango` to build (see `README.md`).
   has nothing to change) and `UnperformedAction` (R4 — on-screen prose
   promising an action while nothing but text is animated). Both are floors,
   not the rules: whether the change *carries the idea* is not countable.
+  R4's "prose" is the set R7 defines, so text at heading size or larger is
+  skipped along with `MathTex`/`Tex`. A heading names the segment's
+  subject rather than claiming something is happening now, and without the
+  exclusion every deck titled after what it demonstrates was reported on
+  its opening slide — an opening segment only introduces things, and
+  introductions are not changes, which is precisely R4's firing condition.
+  Size decides rather than track id, since an author may not have used
+  `heading()`; the comparison carries a point of slack because manim
+  recomputes `font_size` from height and a 36pt heading reads back as
+  35.999999999999964.
   The emphasis animations must be excluded **by class before descending**,
   because `Indicate` is a `Transform` subclass and `Circumscribe`/`Flash`
   are `AnimationGroup`s — otherwise a pulse would satisfy R2, which is

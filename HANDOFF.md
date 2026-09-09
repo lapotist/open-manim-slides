@@ -745,12 +745,21 @@ is what a review from inside the project reliably misses.
     one play is a genuine `ConflictingAnimations`; shifting a result out
     from under its own `SurroundingRectangle` is a genuine
     `TextOnDecorative`. Both were my mistakes and the checks were right.
-  - **One observation left unfixed, deliberately.** R4 scans headings, so
-    an opening segment headed "A Moving Point" is reported for promising an
-    action nothing performs yet — true by the letter of the rule, arguable
-    by its intent, since R2 exempts segment 0 for the same reason and R4
-    does not. Changing R4 needs a measurement, and the corpus is one
-    session old. Recorded here rather than patched.
+  - **The corpus immediately paid for itself on R4.** Building it surfaced
+    that R4 scanned headings, so an opening segment headed "A Moving Point"
+    was reported for promising an action nothing performs yet — and *every*
+    deck titled after what it demonstrates hits this, because an opening
+    segment only introduces things and introductions are not changes, which
+    is exactly R4's firing condition. Fixed by scoping R4's scan to the set
+    R7 already defines: "headings, labels, and equations don't count."
+    The two rules had simply disagreed about what prose is. Size decides
+    rather than track id, since an author may not have reached for
+    `heading()`, and the comparison carries a point of slack because manim
+    recomputes `font_size` from height — a 36pt heading reads back as
+    35.999999999999964, so an exact `>=` silently missed every one of them.
+    Both directions are pinned in the corpus:
+    `heading_names_the_subject.py` must stay clean, `empty_promise.py` says
+    the same words at caption size must still be reported.
   - `corpus/`, not `decks/`: the gitignore's bare `decks/` pattern matches
     at any depth, so `tests/fixtures/decks/` would have been silently
     untracked. The name also keeps it clear of the test-run rule.
@@ -783,7 +792,18 @@ is what a review from inside the project reliably misses.
   forbidden for a subject. `allow` takes a pair of ids, exempting only that
   pair, or a single id. It is narrower than either workaround and leaves
   the intent in the file where the next edit can read it.
-- **Verified**: 227 tests. `init --mode advanced` writes the settings file,
+- **Two smaller findings from the review closed.** `progress phase <Deck>
+  reviewing` used to be stored happily and then read back as an expected
+  share of zero, so every later call reported `BEHIND` and advised cutting
+  scope for a run that was on time; an unknown phase name is now refused
+  and the message lists the seven. And `frames.py` called `int()` on
+  ffprobe's `nb_frames`, which is a container-level field: mp4 carries it,
+  matroska reports `N/A`, a truncated file gives nothing, and the result
+  was a bare `ValueError` that never named the video. It now falls back to
+  counting packets (exact, one demux pass, which is why it is the fallback)
+  and otherwise raises a `FramesError` saying which file and what both
+  probes returned.
+- **Verified**: 234 tests. `init --mode advanced` writes the settings file,
   and a deck scaffolded afterwards with no arguments picks it up — no
   composition block, curated imports, brief stub — and executes.
 

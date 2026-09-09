@@ -248,6 +248,18 @@ def start(deck: str, budget: str | None = None, progress_dir: Path = PROGRESS_DI
 
 
 def mark_phase(deck: str, phase: str, progress_dir: Path = PROGRESS_DIR) -> Run:
+    """Record a phase boundary. Rejects a name the schedule does not know.
+
+    An unrecognised name used to be stored happily and then read back as
+    an expected share of zero, so every later call reported `BEHIND` and
+    advised cutting scope for a run that was on time. A typo is the likely
+    cause -- the names come from a list in `SKILL.md` -- and silently
+    inverting the tracker's verdict is worse than refusing the call.
+    """
+    if phase not in PHASE_SHARE:
+        raise ProgressError(
+            f"Unknown phase {phase!r}. Expected one of: {', '.join(PHASE_ORDER)}."
+        )
     run = Run.load(deck, progress_dir)
     run.phases.append({"name": phase, "at": time.time()})
     run.save()

@@ -47,6 +47,7 @@ EXPECTED: dict[str, list[str]] = {
     "dissection.py": [],
     "centred_summary.py": [],
     "boxed_result.py": [],
+    "heading_names_the_subject.py": [],
     "equation_steps.py": [],
 }
 
