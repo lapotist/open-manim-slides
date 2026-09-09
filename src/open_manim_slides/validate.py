@@ -201,7 +201,27 @@ def _animation_types() -> tuple[tuple[type, ...], tuple[type, ...]]:
     return emphasis, change
 
 
-def _change_animations(animation: Any, on_screen: set[int]) -> list[Any]:
+@lru_cache(maxsize=1)
+def _tracker_types() -> tuple[type, ...]:
+    """The control objects that drive a figure without being on screen themselves.
+
+    A `ValueTracker` stores its number in its own coordinates and is never
+    added to the scene by the recipe that uses it -- `always_redraw` adds
+    the *dot*, not the tracker. So the on-screen test below can never see
+    one, and `self.play(x.animate.set_value(...))` -- R2's own rule text
+    lists it, and `motion-recipes.md` recipe 2 is built on it -- read as a
+    segment where nothing changed.
+    """
+    import manim
+
+    return tuple(
+        getattr(manim, name)
+        for name in ("ValueTracker", "ComplexValueTracker")
+        if hasattr(manim, name)
+    )
+
+
+def _change_animations(animation: Any, on_screen: set[int], driven: bool = False) -> list[Any]:
     """The animations in `animation` that alter something already on screen.
 
     R2's own definition, made countable: entrances don't count
@@ -209,13 +229,20 @@ def _change_animations(animation: Any, on_screen: set[int]) -> list[Any]:
     what `FadeOut` sets), emphasis doesn't count (excluded by class, before
     descending -- see `_animation_types`), and neither does animating in a
     mobject that wasn't on screen to begin with, however it is animated.
+
+    `driven` says whether anything already on screen carries an updater. It
+    is what lets a `ValueTracker` sweep count: the tracker itself is never
+    on screen, so the family test below cannot see it, but the mobject
+    reading it is -- and that mobject is what the audience watches move.
+    Gated on `driven` rather than granted unconditionally so that sweeping
+    a tracker nothing reads still reports honestly as no change.
     """
     emphasis, change = _animation_types()
     if isinstance(animation, emphasis):
         return []
     nested = getattr(animation, "animations", None)
     if nested:
-        return [found for child in nested for found in _change_animations(child, on_screen)]
+        return [found for child in nested for found in _change_animations(child, on_screen, driven)]
     if not isinstance(animation, change):
         return []
     if animation.is_introducer() or getattr(animation, "remover", False):
@@ -223,6 +250,8 @@ def _change_animations(animation: Any, on_screen: set[int]) -> list[Any]:
     target = getattr(animation, "mobject", None)
     if target is None:
         return []
+    if driven and isinstance(target, _tracker_types()):
+        return [animation]
     try:
         family = target.get_family()
     except Exception:  # noqa: BLE001 - an animation without a family can't be a change
@@ -233,15 +262,43 @@ def _change_animations(animation: Any, on_screen: set[int]) -> list[Any]:
 def _on_screen_prose(scene: Any) -> list[str]:
     """Every prose string currently on screen.
 
-    `MathTex`/`Tex` are skipped: R4 scans sentences, and `\\Rightarrow` is
-    not a promise to animate a rotation.
+    Two exclusions, and R7 is what defines the set: "One sentence of prose
+    on screen at a time -- headings, labels, and equations don't count."
+    R4 scans prose, so it scans that same set.
+
+    * `MathTex`/`Tex` are skipped. `\\Rightarrow` is not a promise to
+      animate a rotation.
+    * Text at heading size or larger is skipped. A heading names the
+      segment's subject; it is not a claim about what is happening at this
+      moment. Without this, a deck opening on "A Moving Point" is reported
+      for promising a motion, because an opening segment introduces
+      everything and introductions are not changes -- the exact condition
+      R4 fires on. Segment 0 is where it bites hardest, and R2 already
+      exempts segment 0 for the same underlying reason.
+
+    Size, not track id, decides: `heading()` and `title_slide()` set the
+    font size and an author may not have used either, while a sentence
+    written at heading scale is a heading whatever it was made with. The
+    cost is knowingly accepted -- a real promise typed at 36pt is missed --
+    and it buys R4 never firing on a title, which is what would teach an
+    author to stop naming decks after what they show.
     """
+    from open_manim_slides.theme import FONT_SIZE_HEADING
+
+    # Manim recomputes `font_size` from the mobject's height, so a 36pt
+    # heading reads back as 35.999999999999964 and an exact `>=` misses it.
+    # The theme scale steps 28 -> 36 -> 48, so a whole point of slack
+    # cannot reach the size below.
+    floor = FONT_SIZE_HEADING - 1.0
+
     found: list[str] = []
 
     def walk(mobject: Any) -> None:
         content = text_content(mobject)
         if content is not None:
-            if getattr(mobject, "tex_string", None) is None:
+            font_size = getattr(mobject, "font_size", None)
+            is_heading = isinstance(font_size, (int, float)) and float(font_size) >= floor
+            if getattr(mobject, "tex_string", None) is None and not is_heading:
                 found.append(content)
             return
         for child in getattr(mobject, "submobjects", ()):
@@ -302,10 +359,15 @@ def _instant_play(
             for first, second in _conflicting_pairs(prepared):
                 on_conflict(first, second)
         # Captured before anything is added, because "was this already on
-        # screen?" is what separates a change from an entrance.
-        on_screen = {id(part) for part in scene.get_mobject_family_members()}
+        # screen?" is what separates a change from an entrance. `driven`
+        # rides along for the same reason: a ValueTracker sweep is a change
+        # only if something on screen is reading it, and both facts have to
+        # be read before this play adds anything.
+        members = scene.get_mobject_family_members()
+        on_screen = {id(part) for part in members}
+        driven = any(getattr(part, "updaters", ()) for part in members)
         if on_play is not None:
-            on_play(prepared, on_screen)
+            on_play(prepared, on_screen, driven)
         for animation in prepared:
             if on_text_morph is not None:
                 for source, target in _text_morphs(animation):
@@ -402,9 +464,9 @@ def validate_scene(scene_class: type, audience: str | None = None) -> list[Failu
             )
         )
 
-    def note_play(prepared: list[Any], on_screen: set[int]) -> None:
+    def note_play(prepared: list[Any], on_screen: set[int], driven: bool) -> None:
         for animation in prepared:
-            for change in _change_animations(animation, on_screen):
+            for change in _change_animations(animation, on_screen, driven):
                 counts["changes"] += 1
                 if text_content(getattr(change, "mobject", None)) is None:
                     counts["changes_on_figures"] += 1

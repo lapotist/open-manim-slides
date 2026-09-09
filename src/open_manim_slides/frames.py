@@ -53,7 +53,7 @@ def segment_videos(config_path: Path) -> list[tuple[Path, Path]]:
     re-anchors them against the config's parent-of-parent on load, so the
     same resolution is used here.
     """
-    data = json.loads(config_path.read_text())
+    data = json.loads(config_path.read_text(encoding="utf-8"))
     base = config_path.parent.parent
     pairs = []
     for slide in data["slides"]:
@@ -68,25 +68,53 @@ def segment_videos(config_path: Path) -> list[tuple[Path, Path]]:
     return pairs
 
 
+def _ffprobe(video: Path, entries: str, *extra: str) -> str:
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                *extra,
+                "-show_entries",
+                entries,
+                "-of",
+                "csv=p=0",
+                str(video),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError as error:  # ffprobe not installed
+        raise FramesError("ffprobe is not on PATH -- install ffmpeg.") from error
+    except subprocess.CalledProcessError as error:
+        raise FramesError(f"ffprobe failed on {video}: {error.stderr.strip()}") from error
+    return result.stdout.strip()
+
+
 def _frame_count(video: Path) -> int:
-    result = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=nb_frames",
-            "-of",
-            "csv=p=0",
-            str(video),
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
+    """How many frames the video has, by header first and by counting second.
+
+    `nb_frames` is a container-level field, so it is cheap when present and
+    simply absent otherwise -- ffprobe prints `N/A`, or nothing at all, and
+    the old `int()` on that raised a bare `ValueError` with no mention of
+    the video it came from. Counting packets is exact and costs a demux
+    pass, which is why it is the fallback rather than the first choice.
+    """
+    header = _ffprobe(video, "stream=nb_frames")
+    if header.isdigit() and int(header) > 0:
+        return int(header)
+    counted = _ffprobe(video, "stream=nb_read_packets", "-count_packets")
+    if counted.isdigit() and int(counted) > 0:
+        return int(counted)
+    raise FramesError(
+        f"Could not determine a frame count for {video} "
+        f"(nb_frames={header!r}, nb_read_packets={counted!r}). "
+        "The segment video is probably empty or truncated -- re-render the deck."
     )
-    return int(result.stdout.strip())
 
 
 def sheet_select_step(frame_count: int, tiles: int = SHEET_TILES) -> int:

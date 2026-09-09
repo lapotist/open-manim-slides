@@ -72,3 +72,66 @@ def test_extract_review_frames_missing_config_names_available_scenes(tmp_path: P
 def test_main_rejects_wrong_arg_count(capsys):
     assert main([]) == 2
     assert "usage" in capsys.readouterr().err
+
+
+# --- Frame count -------------------------------------------------------
+#
+# `nb_frames` is a container-level field: mp4 carries it, matroska reports
+# `N/A`, and a truncated file gives nothing. The old code called `int()` on
+# whatever came back, so a container without the field raised a bare
+# `ValueError` that never named the video.
+
+
+def test_frame_count_uses_the_container_header_when_it_has_one(monkeypatch):
+    import open_manim_slides.frames as frames
+
+    calls = []
+
+    def fake(video, entries, *extra):
+        calls.append(entries)
+        return "47"
+
+    monkeypatch.setattr(frames, "_ffprobe", fake)
+
+    assert frames._frame_count(Path("a.mp4")) == 47
+    # The counting pass costs a full demux, so it must not run when the
+    # cheap field already answered.
+    assert calls == ["stream=nb_frames"]
+
+
+def test_frame_count_falls_back_to_counting_packets(monkeypatch):
+    """Matroska and any stream-copied container report `N/A` here."""
+    import open_manim_slides.frames as frames
+
+    monkeypatch.setattr(
+        frames,
+        "_ffprobe",
+        lambda video, entries, *extra: "N/A" if entries == "stream=nb_frames" else "47",
+    )
+
+    assert frames._frame_count(Path("a.mkv")) == 47
+
+
+def test_frame_count_reports_the_video_when_neither_answer_works(monkeypatch):
+    """An empty or truncated segment is a real thing to hit after an
+    interrupted render, and the message has to say which file."""
+    import open_manim_slides.frames as frames
+
+    monkeypatch.setattr(frames, "_ffprobe", lambda video, entries, *extra: "")
+
+    with pytest.raises(FramesError, match="broken.mp4"):
+        frames._frame_count(Path("broken.mp4"))
+
+
+def test_a_missing_ffprobe_is_reported_as_a_frames_error(monkeypatch):
+    import subprocess
+
+    import open_manim_slides.frames as frames
+
+    def missing(*args, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "ffprobe")
+
+    monkeypatch.setattr(subprocess, "run", missing)
+
+    with pytest.raises(FramesError, match="ffprobe is not on PATH"):
+        frames._ffprobe(Path("a.mp4"), "stream=nb_frames")

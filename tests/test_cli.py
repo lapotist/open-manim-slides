@@ -130,3 +130,32 @@ def test_lazy_exports_still_resolve():
     assert callable(open_manim_slides.heading)
     with pytest.raises(AttributeError):
         open_manim_slides.no_such_name
+
+
+def test_init_records_the_project_mode(tmp_path):
+    """So the scaffolder reads the project's choice instead of the agent
+    making one per build."""
+    import json
+
+    from open_manim_slides.scaffold import SETTINGS_FILE, resolve_options
+
+    cli.init_project(tmp_path, mode="advanced")
+    settings = json.loads((tmp_path / SETTINGS_FILE).read_text(encoding="utf-8"))
+
+    assert settings["mode"] == "advanced"
+    assert resolve_options(root=tmp_path)["composition"] == "none"
+
+
+def test_init_defaults_to_simple_mode(tmp_path):
+    import json
+
+    from open_manim_slides.scaffold import SETTINGS_FILE
+
+    cli.init_project(tmp_path)
+
+    assert json.loads((tmp_path / SETTINGS_FILE).read_text(encoding="utf-8"))["mode"] == "simple"
+
+
+def test_init_rejects_an_unknown_mode(tmp_path):
+    with pytest.raises(ValueError, match="Unknown mode"):
+        cli.init_project(tmp_path, mode="expert")

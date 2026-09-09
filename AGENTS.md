@@ -65,9 +65,16 @@ dependency `manimpango` to build (see `README.md`).
     still on screen for, not just the segment `track()` was called in.
     Duplicate `id` within one segment raises; reuse across segments is
     expected.
-  - `assert_no_overlap_among_tracked()` — pairwise overlap check across
-    every currently-active, non-decorative tracked element. Scaffolded
-    decks call this automatically at the end of every segment.
+  - `assert_no_overlap_among_tracked(allow=...)` — pairwise overlap check
+    across every currently-active, non-decorative tracked element.
+    Scaffolded decks call this automatically at the end of every segment.
+    `allow` names overlaps that are the design (a Venn lens, a label on
+    its region, a card stack): an entry is either a pair of ids, which
+    exempts only that pair, or a single id, which lets it overlap
+    anything. It exists because the two things authors reached for
+    instead were worse — deleting the scaffolded call removes the check
+    with nothing to notice, and `decorative=True` exempts the element
+    from every comparison and is forbidden for a segment's subject.
   - `track(mobj, id="...", decorative=True)` opts an element out of that
     check while still recording it in the manifest — for backdrop/
     indicator geometry (axes, guide circles, a `SurroundingRectangle`)
@@ -119,8 +126,14 @@ dependency `manimpango` to build (see `README.md`).
   per-segment heading pinned near the top with slack past the safe
   margin — the `title_slide(...).to_edge(UP)` idiom it replaces put a
   48pt heading exactly on the margin), `two_column()`,
-  `diagram_with_caption()`. Deeper palette work (contrast-checked custom
-  hues) is a future slice.
+  `diagram_with_caption()`. `two_column()` is scoped in its docstring to a
+  pair *inside* one segment: it centres the halves on their own content
+  width (measured at x = -1.05 / +2.00 for one pairing, and both move when
+  either half resizes), so it is exactly the per-segment placement the
+  scaffolded `COL_LEFT_X`/`COL_RIGHT_X` slots exist to replace — the
+  scaffolder therefore omits it from a file that carries a composition
+  block. Deeper palette work (contrast-checked custom hues) is a future
+  slice.
 - `src/open_manim_slides/convert.py` — the project's HTML export path,
   `convert_to_html(...)`, a drop-in replacement for the CLI conversion
   with two fixes:
@@ -159,7 +172,21 @@ dependency `manimpango` to build (see `README.md`).
     `COL_W`, `ROW_Y`, `HEAD_Y`) derived from the real frame, with the
     column half-width **floored** rather than rounded so a slot's outer
     edge cannot land outside the bound it came from — placing against
-    these names cannot fail the safe-frame check;
+    these names cannot fail the safe-frame check. `HEAD_Y` is measured
+    against what `theme.heading()` actually does (it pins the text's *top*
+    at 3.35, so a one-line 36pt heading centres at ~3.11-3.16 with
+    descenders reaching ~2.86) rather than the 3.0 it used to assert, and
+    the slot now states the floor to keep clear instead of leaving it to
+    be rediscovered per deck;
+  - **the imports a segment is going to need** — `numpy as np`, `from
+    manim import *`, and every theme token and template the skill tells
+    the author to prefer over a literal. The star import is deliberate:
+    any curated list is complete for the deck it was written for and wrong
+    for the next one, which puts the author back in the edit-then-use
+    cycle the skill's own "shape of a good run" names as a cost, *and*
+    leaves them guessing whether extending the list is sanctioned. It is
+    also manim's own documented convention, and a deck file is a leaf
+    artifact rather than library code;
   - a **declaration of every cross-segment attribute** as a bare
     annotation. Annotations create no attribute, so a forgotten handoff
     still raises `AttributeError` — the benefit is that the name is
@@ -172,9 +199,25 @@ dependency `manimpango` to build (see `README.md`).
   - `check_plan()`, which runs at scaffold time and **rejects the plan**
     if a segment carries a name no earlier segment produces (the
     `AttributeError`-cascade class, killed before any code exists) or if
-    more than `MAX_CLEARED_STARTS` segments begin from a cleared frame
-    (R1). Segment count against the audience is returned as an advisory
-    note, not raised — a deliberate outline may differ.
+    more than `max_cleared_starts` segments begin from a cleared frame
+    (R1; `None` lifts it). Segment count against the audience is returned
+    as an advisory note, not raised — a deliberate outline may differ.
+
+  Two axes are configurable, and `resolve_options()` settles both from an
+  explicit argument, then `open-manim-slides.json` in the project root,
+  then the mode's default. The project owner pins the choice once; the
+  agent never re-decides it per build, which would be a fresh source of
+  exactly the inconsistency the composition block removed.
+  - `mode` — `"simple"` (two-column composition, star import, the full
+    checklist, R1 enforced) or `"advanced"` (no composition block, curated
+    imports, a short stub, no R1 ceiling). **The line between them is
+    deliberate: advanced relaxes the pre-commitment gates, never the
+    correctness checks.** Composition, the cleared-start ceiling and the
+    checklist are house style, and a deck may have a good reason to
+    differ; safe frame, overlap, conflicting animations, illegible morphs,
+    R2 and R4 catch defects, and `validate` behaves identically under both.
+  - `imports` — `"all"` (default), `"curated"` (the names the documented
+    recipes use), `"minimal"` (framework only), or an explicit list.
 
   The motivation is measured, from six real build transcripts: `validate`
   made each check ~4.5× cheaper without reducing how *often* the agent
@@ -231,6 +274,14 @@ dependency `manimpango` to build (see `README.md`).
   source — `\tfrac12` is eight characters but one small fraction.
   `FadeTransform`, `TransformMatchingTex`, `.animate`, and shape-to-shape
   transforms are deliberately not flagged.
+  R2 also counts a `ValueTracker` sweep, gated on something already on
+  screen carrying an updater. A tracker stores its number in its own
+  coordinates and is never added to the scene by the recipe that uses it
+  (`always_redraw` adds the *dot*), so the on-screen test could not see it
+  and the framework's own recipe 2 — which R2's rule text names — reported
+  `NoChangeAnimation` while performing the most animated thing a deck can
+  do. Gated rather than granted outright, so sweeping a tracker no figure
+  reads still reports honestly.
   It reports `TextOnDecorative` from `base.py`'s finder above, and two
   content rules that were previously self-graded prose: `NoChangeAnimation`
   (R2 — at least one animation per segment altering something already on
@@ -239,6 +290,16 @@ dependency `manimpango` to build (see `README.md`).
   has nothing to change) and `UnperformedAction` (R4 — on-screen prose
   promising an action while nothing but text is animated). Both are floors,
   not the rules: whether the change *carries the idea* is not countable.
+  R4's "prose" is the set R7 defines, so text at heading size or larger is
+  skipped along with `MathTex`/`Tex`. A heading names the segment's
+  subject rather than claiming something is happening now, and without the
+  exclusion every deck titled after what it demonstrates was reported on
+  its opening slide — an opening segment only introduces things, and
+  introductions are not changes, which is precisely R4's firing condition.
+  Size decides rather than track id, since an author may not have used
+  `heading()`; the comparison carries a point of slack because manim
+  recomputes `font_size` from height and a 36pt heading reads back as
+  35.999999999999964.
   The emphasis animations must be excluded **by class before descending**,
   because `Indicate` is a `Transform` subclass and `Circumscribe`/`Flash`
   are `AnimationGroup`s — otherwise a pulse would satisfy R2, which is
@@ -276,7 +337,10 @@ dependency `manimpango` to build (see `README.md`).
   reserved, not wasted, and only a never-reached cell is dead); and it
   crops the safe margin (which is supposed to be empty). Thresholds bias
   toward under-reporting, so a region it calls dead is genuinely
-  untouched. Answers the `create-deck` review's Q2 mechanically instead
+  untouched. `SPARSE_SEGMENT_FILL` is 0.20, the same number `create-deck`'s
+  review acts on — at 0.15 a segment at 18% carried no flag here while
+  being mandatory to fix there, so an author reading the flag rather than
+  the number was misled by the tool. Answers the `create-deck` review's Q2 mechanically instead
   of by eye.
 - `src/open_manim_slides/playback.py` — navigation check for an exported
   deck, driven through real headless Firefox
@@ -367,6 +431,27 @@ content, not curated public examples yet (see `HANDOFF.md`).
 ```bash
 pytest
 ```
+
+`tests/fixtures/corpus/` is the **validation corpus**, driven by
+`tests/test_corpus.py`. Half the fixtures are wrong on purpose and pin
+that each gated finding *can* fire, with the exact finding it must
+produce. The other half are correct decks built from constructs the
+framework recommends, and are the false-positive guard: run any proposed
+new check against them before shipping it, because a rule that reports
+correct work teaches the author to ignore every report. They are
+deliberately heterogeneous in composition so that passing the corpus does
+not quietly become matching one house style. **They are test data, never
+examples** — the directory is named `corpus/` rather than `decks/` partly
+so `create-deck`'s test-run rule and the `decks/` gitignore both leave it
+alone. Session eighteen's tracker bug is why it exists: R2 was measured
+against decks that already existed, and the recipes a rule *invites* are
+what a corpus of past work cannot contain.
+
+`doctor` lists latex as *optional*, so the tests that compile a `MathTex`
+skip without it rather than failing, the same way the browser test skips
+without Firefox — otherwise a correct checkout on a machine that took the
+framework at its word reports red tests indistinguishable from a real
+regression.
 
 Includes one end-to-end browser test (`tests/test_playback.py`, ~11 s)
 that walks a real exported deck in headless Firefox and fails if any

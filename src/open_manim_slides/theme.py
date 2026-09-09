@@ -113,6 +113,19 @@ def two_column(left: Any, right: Any, *, buff: float = SPACING_LG) -> Any:
     always different kinds of content (a diagram vs. text) needing
     different ids and entrance animations. Returns the `VGroup` so a
     caller can animate or reposition both halves together if needed.
+
+    **Not the deck-wide composition.** `arrange` centres the pair on their
+    own combined width, so the two halves land wherever this segment's
+    content happens to put them -- measured on one deck, a 3-unit figure
+    beside three text rows centres its halves at x = -1.05 and +2.00, and
+    both move as soon as either half changes size. That is per-segment
+    placement, which is the thing `scaffold.py`'s `COL_LEFT_X` /
+    `COL_RIGHT_X` slots exist to replace: a deck whose column centres drift
+    segment to segment reads as a figure adrift. Use this for a
+    self-contained pair inside one segment (a before/after, two cases side
+    by side); when the deck file carries a composition block, place against
+    its slots instead, which is why the scaffolder does not import this
+    name into such a file.
     """
     from manim import RIGHT, VGroup
 

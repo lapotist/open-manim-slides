@@ -122,8 +122,39 @@ def _link_or_copy(link: Path, target: Path) -> str:
         return "copy"
 
 
-def init_project(directory: Path, force: bool = False) -> list[str]:
+PROJECT_SETTINGS_DOC = """\
+Project defaults for `open-manim-slides`. Edit here rather than deciding
+per deck: an option the agent re-picks every build is a fresh source of the
+inconsistency the scaffold exists to remove.
+
+  mode     "simple"   two-column composition, star import, the full
+                      authoring checklist, R1's cleared-start ceiling.
+                      Fewest decisions, most consistent decks.
+           "advanced" no composition block (you design the layout),
+                      curated imports, a short stub, no R1 ceiling. Room
+                      to present differently, at the cost of the rails.
+  imports  "all" | "curated" | "minimal", overriding the mode's default.
+
+A mode changes only what is written into a new deck file. It never changes
+what `validate` enforces -- safe frame, overlap, conflicting animations,
+illegible morphs, R2 and R4 are identical under both.
+"""
+
+
+def init_project(
+    directory: Path,
+    force: bool = False,
+    mode: str = "simple",
+    imports: str | None = None,
+) -> list[str]:
     """Write the project scaffold into `directory`; return what was written."""
+    import json
+
+    from open_manim_slides.scaffold import MODE_DEFAULTS, SETTINGS_FILE
+
+    if mode not in MODE_DEFAULTS:
+        raise ValueError(f"Unknown mode {mode!r}; expected one of {', '.join(MODE_DEFAULTS)}.")
+
     directory = directory.resolve()
     directory.mkdir(parents=True, exist_ok=True)
 
@@ -153,18 +184,26 @@ def init_project(directory: Path, force: bool = False) -> list[str]:
 
     agents_md = directory / "AGENTS.md"
     if not agents_md.exists() or force:
-        agents_md.write_text(PROJECT_AGENTS_MD)
+        agents_md.write_text(PROJECT_AGENTS_MD, encoding="utf-8")
         written.append("AGENTS.md")
     claude_md = directory / "CLAUDE.md"
     if not claude_md.exists() or force:
         kind = _link_or_copy(claude_md, agents_md)
         written.append(f"CLAUDE.md ({kind})")
 
+    settings_path = directory / SETTINGS_FILE
+    if not settings_path.exists() or force:
+        settings = {"_readme": PROJECT_SETTINGS_DOC.splitlines(), "mode": mode}
+        if imports is not None:
+            settings["imports"] = imports
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+        written.append(f"{SETTINGS_FILE} (mode: {mode})")
+
     decks = directory / "decks"
     decks.mkdir(exist_ok=True)
     gitkeep = decks / ".gitkeep"
     if not gitkeep.exists():
-        gitkeep.write_text("")
+        gitkeep.write_text("", encoding="utf-8")
     written.append("decks/")
 
     return written
@@ -262,6 +301,19 @@ def main(argv: list[str] | None = None) -> int:
     p_init = sub.add_parser("init", help="write the project scaffold here")
     p_init.add_argument("directory", nargs="?", default=".", type=Path)
     p_init.add_argument("--force", action="store_true", help="overwrite existing files")
+    p_init.add_argument(
+        "--mode",
+        choices=("simple", "advanced"),
+        default="simple",
+        help="simple: more scaffolding, more consistent decks. "
+        "advanced: you design the composition, fewer rails. "
+        "Neither changes what `validate` enforces.",
+    )
+    p_init.add_argument(
+        "--imports",
+        choices=("all", "curated", "minimal"),
+        help="override the mode's import style in new deck files",
+    )
 
     sub.add_parser("doctor", help="check system dependencies")
     sub.add_parser("version", help="print the installed version")
@@ -270,8 +322,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "init":
         try:
-            written = init_project(args.directory, force=args.force)
-        except (FileExistsError, FileNotFoundError) as exc:
+            written = init_project(
+                args.directory, force=args.force, mode=args.mode, imports=args.imports
+            )
+        except (FileExistsError, FileNotFoundError, ValueError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
         for item in written:

@@ -238,3 +238,188 @@ def test_segments_accept_dicts_from_the_plan_table():
 
     assert '"""the setup"""' in source
     assert "carried in:  self.fig" in source
+
+
+# --- Imports -----------------------------------------------------------
+#
+# The file used to arrive with two imports for a workflow whose own
+# examples use `np.array`, `heading()`, `Text` and a colour token in the
+# first ten lines -- so the first thing every build did was add an import
+# and re-run. These pin that the emitted file can be authored against the
+# skill's documented vocabulary without editing the import block.
+
+
+def test_emitted_file_imports_what_the_workflow_tells_the_author_to_use():
+    source = render_deck_source("Imports", ["intro"])
+
+    assert "import numpy as np" in source
+    assert "from manim import *" in source
+    for name in ("heading", "title_slide", "COLOR_ACCENT", "FONT_SIZE_HEADING", "SPACING_MD"):
+        assert name in source, name
+
+
+def test_two_column_is_not_offered_alongside_a_composition_block():
+    """Two layout systems in one file and no way to choose between them.
+
+    `two_column` centres its halves on their own content width, so the
+    column centres move segment to segment -- which is the placement
+    `COL_LEFT_X`/`COL_RIGHT_X` exist to replace.
+    """
+    with_composition = render_deck_source("Imports", ["intro"])
+    without = render_deck_source("Imports", ["intro"], composition="none")
+
+    assert "two_column" not in with_composition
+    assert "COL_LEFT_X" in with_composition
+    assert "two_column" in without
+
+
+def test_emitted_file_is_importable_and_authorable_as_written(tmp_path: Path):
+    """A syntax or name error in the scaffold costs every build a round
+    trip, so the emitted file is executed here rather than string-matched."""
+    import importlib.util
+    import sys
+
+    path = new_deck(
+        "Runnable Deck",
+        [Segment("open", shows="a square", produces=["fig"])],
+        out_dir=tmp_path,
+        audience="high-school",
+    )
+    spec = importlib.util.spec_from_file_location("runnable_deck", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        # Every name the segment stub's own checklist points the author at
+        # resolves in the emitted module's namespace.
+        for name in ("np", "Text", "VGroup", "Transform", "heading", "COLOR_ACCENT", "COL_LEFT_X"):
+            assert hasattr(module, name), name
+        assert module.RunnableDeck.__name__ == "RunnableDeck"
+    finally:
+        sys.modules.pop("runnable_deck", None)
+
+
+def test_composition_slot_comments_line_up():
+    """A negative value is one character wider than its positive twin, and
+    used to push `COL_LEFT_X`'s comment out of line with every other row."""
+    source = render_deck_source("Aligned", ["intro"])
+    columns = {
+        line.index("#")
+        for line in source.splitlines()
+        if line.startswith(("SAFE_", "HEAD_Y", "COL_", "ROW_Y")) and "#" in line
+    }
+
+    assert len(columns) == 1
+
+
+# --- Modes and imports -------------------------------------------------
+#
+# Two axes the project owner pins once, in `open-manim-slides.json`, rather
+# than the agent re-deciding per build. The line they draw is the point:
+# a mode changes what is *written into the file*, never what `validate`
+# enforces. Pre-commitment gates are house style and relax; the checks that
+# catch defects do not.
+
+from open_manim_slides.scaffold import (  # noqa: E402
+    MODE_DEFAULTS,
+    SETTINGS_FILE,
+    project_settings,
+    resolve_options,
+)
+
+
+def test_simple_mode_is_the_default_and_keeps_the_rails():
+    source = render_deck_source("Demo", _planned_deck())
+
+    assert "COL_LEFT_X" in source
+    assert "from manim import *" in source
+    assert "delete these notes" in source
+
+
+def test_advanced_mode_hands_the_composition_back_to_the_author():
+    source = render_deck_source("Demo", _planned_deck(), mode="advanced")
+
+    assert "COL_LEFT_X" not in source
+    assert "from manim import *" not in source
+    assert "two_column" in source  # the content-width template is right again
+    assert "You own the composition" in source
+
+
+def test_advanced_mode_still_scaffolds_the_overlap_check():
+    """Relaxing house style must not relax a check that catches defects."""
+    source = render_deck_source("Demo", _planned_deck(), mode="advanced")
+
+    assert source.count("self.assert_no_overlap_among_tracked()") == 3
+    assert "allow=" in source  # and names the sanctioned way to overlap on purpose
+
+
+def test_advanced_mode_lifts_the_cleared_start_ceiling_but_not_the_handoff_check():
+    """How many segments open on a cleared frame is a pacing judgement; a
+    carried name nothing produces is a defect in any style."""
+    too_many = [Segment("a", produces=["f"]), Segment("b"), Segment("c"), Segment("d", carries=["f"])]
+
+    assert check_plan(too_many, max_cleared_starts=None) == []
+    with pytest.raises(ValueError, match="R1 allows"):
+        check_plan(too_many)
+    with pytest.raises(ValueError, match="no earlier segment produces"):
+        check_plan([Segment("a", produces=["f"]), Segment("b", carries=["nope"])], max_cleared_starts=None)
+
+
+def test_curated_imports_name_the_house_vocabulary():
+    source = render_deck_source("Demo", ["intro"], imports="curated")
+
+    assert "from manim import (" in source
+    assert "    Transform," in source
+    assert "from manim import *" not in source
+    assert "heading," in source  # theme tokens still arrive
+
+
+def test_minimal_imports_restore_the_bare_file():
+    """Kept as an explicit choice, so nobody falls back into it by accident."""
+    source = render_deck_source("Demo", _planned_deck(), imports="minimal")
+
+    assert "from manim import Mobject" in source
+    assert "numpy" not in source
+    assert "COLOR_ACCENT" not in source
+
+
+def test_an_explicit_import_list_is_used_verbatim():
+    source = render_deck_source("Demo", ["intro"], imports=["Square", "Create"])
+
+    assert "    Square,\n" in source and "    Create,\n" in source
+    assert "    Brace," not in source
+
+
+def test_an_empty_import_list_is_rejected():
+    with pytest.raises(ValueError, match="empty list"):
+        render_deck_source("Demo", ["intro"], imports=[])
+
+
+def test_unknown_mode_is_rejected_by_name():
+    with pytest.raises(ValueError, match="Unknown mode"):
+        render_deck_source("Demo", ["intro"], mode="expert")
+
+
+def test_a_project_setting_decides_when_the_caller_does_not(tmp_path: Path):
+    """The whole point of the file: the project pins the choice once, so no
+    build has to re-decide it."""
+    (tmp_path / SETTINGS_FILE).write_text('{"mode": "advanced"}', encoding="utf-8")
+
+    assert project_settings(tmp_path) == {"mode": "advanced"}
+    assert resolve_options(root=tmp_path)["composition"] == "none"
+    # An explicit argument still wins over the file.
+    assert resolve_options(mode="simple", root=tmp_path)["composition"] == "two-column"
+
+
+def test_a_missing_or_unreadable_settings_file_falls_back_to_simple(tmp_path: Path):
+    assert project_settings(tmp_path) == {}
+    (tmp_path / SETTINGS_FILE).write_text("{not json", encoding="utf-8")
+
+    assert project_settings(tmp_path) == {}
+    assert resolve_options(root=tmp_path)["mode"] == "simple"
+
+
+def test_every_mode_declares_a_full_set_of_defaults():
+    keys = {"composition", "imports", "brief_stub", "max_cleared_starts"}
+
+    assert all(set(defaults) == keys for defaults in MODE_DEFAULTS.values())

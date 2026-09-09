@@ -1,6 +1,6 @@
 # open-manim-slides — Handoff
 
-Status: updated after the seventeenth implementation session, 2026-08-28.
+Status: updated after the eighteenth implementation session, 2026-09-08.
 MIT, public at **https://github.com/lapotist/open-manim-slides**, `main`
 pushed through session seventeen. Read this before doing further work —
 it's the authoritative summary of what's decided, what's built, and what's
@@ -637,6 +637,175 @@ before being built.
   would have missed that changing); 187 tests passing; all 11 decks
   validating **identically** to the 0.20.1 baseline; and a 31-animation
   deck rendering clean in 5s.
+
+**18 (2026-09-08)** — First outside review of the whole tree, by an agent
+with no prior context. Read every module and both skill references, built
+the environment from scratch, and ran the pipeline end to end in a fresh
+`init` project. Findings are separated below into things that were wrong
+and things that merely disagreed with each other, because the second kind
+is what a review from inside the project reliably misses.
+
+- **The environment build is itself a finding.** `pip install -e ".[dev]"`
+  fails on a clean Ubuntu image — `manimpango` needs `libcairo2-dev` and
+  `libpango1.0-dev`, which `README.md` says and the error does not, since
+  it surfaces as a pkg-config exit status inside a build backend. `doctor`
+  reports it correctly *after* the install fails, which is the state it was
+  designed for. Nothing changed; recorded because the first ten minutes of
+  any fresh review are spent here.
+- **R2 rejected the framework's own recipe.** A segment whose change is
+  `tracker.animate.set_value(...)` driving an `always_redraw` mobject —
+  `motion-recipes.md` recipe 2, and named in R2's rule text — reported
+  `NoChangeAnimation`. A `ValueTracker` keeps its number in its own
+  coordinates and is never added to the scene (the recipe adds the *dot*),
+  so `_change_animations`' on-screen family test structurally cannot see
+  it. This is the failure mode the repo already knows is the worst kind:
+  a check that fires on correct, documented work teaches the author to
+  ignore the check, and `test_legible_text_swaps_are_not_flagged` says so
+  in as many words. Fixed by exempting a tracker sweep **gated on
+  something on screen carrying an updater**, so a tracker no figure reads
+  still reports no change; both directions are pinned by tests. It went
+  unmeasured in session seventeen because the corpus that validated R2 was
+  eleven existing decks, and a check can only be measured against work
+  that already exists — the recipes it *invites* are exactly what a corpus
+  cannot cover.
+- **The scaffolded file imported two names.** Session sixteen's thesis is
+  that anything decided before a check can run belongs in the file the
+  agent starts from, and `SKILL.md`'s own list of what makes a run balloon
+  names "adding an import in one turn and using it in the next" — yet the
+  file arrived with `Slide` and `assert_within_safe_frame` for a workflow
+  whose documented segment shape uses `np.array`, `heading()`, `Text`,
+  `VGroup`, `Transform` and a colour token in its first ten lines. Now
+  emits `numpy as np`, `from manim import *`, and every theme token and
+  template. The star import is the decision worth defending: a curated
+  list is complete for the deck it was written for and wrong for the next
+  one, which restores the same round trip *and* adds a question about
+  whether extending it is allowed. It is also manim's own documented
+  convention, and a deck is a leaf artifact. Verified by executing the
+  emitted module and asserting each name the stub's checklist points at
+  resolves.
+- **Two layout systems, both recommended.** `theme.two_column()` arranges
+  its halves with `VGroup.arrange`, which centres them on their own
+  content width: measured at x = -1.05 / +2.00 for one pairing, moving to
+  -1.02 / +1.00 when the content narrows. That is per-segment placement —
+  precisely what the composition block exists to abolish — and
+  `framework-rules.md` recommended it two sections after `SKILL.md`
+  forbade the practice. Resolved by scope rather than deletion:
+  `two_column` is for a self-contained pair inside one segment, the slots
+  are the deck's layout, and the scaffolder omits `two_column` from a file
+  that carries a composition block so the file cannot offer both.
+- **`HEAD_Y` was off, and its comment claimed more than it knew.**
+  `heading()` pins the text's *top* at 3.35, so a one-line 36pt heading
+  centres at 3.11-3.16 and its descenders reach ~2.86; the slot asserted
+  3.0 and said "heading() sits here". Now measured, and states the floor
+  to keep clear. The comment column also aligns, which it did not for the
+  one negative slot.
+- **Tool and workflow disagreed on a number.** `blankspace` flagged a
+  segment `<- sparse` below 15% fill while `SKILL.md`'s review makes a fix
+  mandatory below 20%, so a segment at 18% read as fine in the output and
+  had to be fixed by the table. Aligned to 0.20.
+- **Smaller, all fixed.** `progress start <Deck> 0` raised
+  `ZeroDivisionError` from inside the status line the tracker exists to
+  print (a zero-length budget is now rejected at parse). `Slide.remove`
+  overrode a method that returns `Self` and returned `None`. Every
+  `read_text`/`write_text` in the package used the platform default
+  encoding — harmless on Linux, and unable to write a deck title in the
+  language this project was generalized from on Windows; all now pin
+  UTF-8. The four tests that compile a `MathTex` hard-failed without
+  latex, which `doctor` calls optional, so a correct checkout looked
+  broken; they skip now, as the browser test already did.
+- **What was deliberately not built.** Session seventeen measured R3, R5
+  and R7 against 77 segments and declined them; nothing here revisits
+  that, and the corpus is not in the repo (`decks/` is gitignored), so no
+  claim in this entry rests on re-measuring it. The `decorative`-on-subject
+  rule and the scaffold checklist deleting itself before review are still
+  ungated, both known from session fifteen's audit.
+- **Verified**: 193 tests (up from 187) plus the browser test skipped for
+  want of Firefox; `init` → scaffold → author → `validate` clean on the
+  first attempt for a middle-school deck (the ≥2-changes audience) →
+  `-ql` render → `frames` → `blankspace` → HTML export with the enum
+  quoting and the instant-navigation script both intact.
+
+- **The validation corpus, built** (`tests/fixtures/corpus/`, driven by
+  `tests/test_corpus.py`). The user's objection to a reference deck was
+  correct and is the reason this is not one: a single canonical deck put in
+  front of every agent costs exactly the presentational freedom the seven
+  rules were written to protect, and the repo already fights that with
+  `exemplar.md`'s anti-copy line and the test-run rule. What was missing is
+  a different artifact, and it must not be good. Nine fixtures are wrong on
+  purpose, one per gated finding, pinning that the check *can* fire and
+  with what — the standard the browser test was held to in session
+  thirteen, applied to the headless checks. Five are correct decks built
+  from constructs the framework recommends, and they are the expensive
+  half: the false-positive guard a proposed check is run against before it
+  ships. They are deliberately heterogeneous (driven diagram, dissection,
+  centred summary, boxed result, equation step) so passing the corpus does
+  not silently become matching one house style.
+  - **Writing it found three real defects in the fixtures themselves**, all
+    caught by the checks under test: `Indicate(x)` beside `x.animate` in
+    one play is a genuine `ConflictingAnimations`; shifting a result out
+    from under its own `SurroundingRectangle` is a genuine
+    `TextOnDecorative`. Both were my mistakes and the checks were right.
+  - **The corpus immediately paid for itself on R4.** Building it surfaced
+    that R4 scanned headings, so an opening segment headed "A Moving Point"
+    was reported for promising an action nothing performs yet — and *every*
+    deck titled after what it demonstrates hits this, because an opening
+    segment only introduces things and introductions are not changes, which
+    is exactly R4's firing condition. Fixed by scoping R4's scan to the set
+    R7 already defines: "headings, labels, and equations don't count."
+    The two rules had simply disagreed about what prose is. Size decides
+    rather than track id, since an author may not have reached for
+    `heading()`, and the comparison carries a point of slack because manim
+    recomputes `font_size` from height — a 36pt heading reads back as
+    35.999999999999964, so an exact `>=` silently missed every one of them.
+    Both directions are pinned in the corpus:
+    `heading_names_the_subject.py` must stay clean, `empty_promise.py` says
+    the same words at caption size must still be reported.
+  - `corpus/`, not `decks/`: the gitignore's bare `decks/` pattern matches
+    at any depth, so `tests/fixtures/decks/` would have been silently
+    untracked. The name also keeps it clear of the test-run rule.
+- **Two configurable axes, and the design question is who chooses.** The
+  user asked for customizable imports and a simple/advanced split. An
+  option the *agent* re-picks every build is a fresh source of the
+  inconsistency the composition block was added to remove, so both resolve
+  from an explicit argument, then `open-manim-slides.json` in the project
+  root, then the mode default. The project owner pins it once; the skill
+  tells the agent to pass nothing.
+  - `imports`: `"all"` (default star import), `"curated"` (the names the
+    documented recipes use, which reads better and states the house
+    vocabulary at the cost of one edit when a deck needs something else),
+    `"minimal"` (the pre-session-18 bare file, kept as an explicit choice
+    so nobody falls back into it), or an explicit list.
+  - `mode`: `"simple"` or `"advanced"`. **The line between them is the
+    whole design: advanced relaxes the pre-commitment gates, never the
+    correctness checks.** Composition, R1's cleared-start ceiling and the
+    stub checklist are house style, and a deck may have a good reason to
+    differ. Safe frame, overlap, conflicting animations, illegible morphs,
+    R2 and R4 catch defects, and `validate` is byte-identical under both.
+    Without that line "advanced mode" would just mean "the checks are
+    optional", which is the state the framework exists to leave.
+- **`assert_no_overlap_among_tracked(allow=...)`** — the gap "remove some
+  restrictions" actually pointed at. The framework had no sanctioned way to
+  say two things overlap on purpose (a Venn lens, a label on its region, a
+  card stack). The two things an author reached for instead were deleting
+  the scaffolded call, which is silent and rule-forbidden, and
+  `decorative=True`, which exempts the element from every comparison and is
+  forbidden for a subject. `allow` takes a pair of ids, exempting only that
+  pair, or a single id. It is narrower than either workaround and leaves
+  the intent in the file where the next edit can read it.
+- **Two smaller findings from the review closed.** `progress phase <Deck>
+  reviewing` used to be stored happily and then read back as an expected
+  share of zero, so every later call reported `BEHIND` and advised cutting
+  scope for a run that was on time; an unknown phase name is now refused
+  and the message lists the seven. And `frames.py` called `int()` on
+  ffprobe's `nb_frames`, which is a container-level field: mp4 carries it,
+  matroska reports `N/A`, a truncated file gives nothing, and the result
+  was a bare `ValueError` that never named the video. It now falls back to
+  counting packets (exact, one demux pass, which is why it is the fallback)
+  and otherwise raises a `FramesError` saying which file and what both
+  probes returned.
+- **Verified**: 234 tests. `init --mode advanced` writes the settings file,
+  and a deck scaffolded afterwards with no arguments picks it up — no
+  composition block, curated imports, brief stub — and executes.
 
 ## Immediate next steps (priority order)
 

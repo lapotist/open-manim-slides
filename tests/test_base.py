@@ -309,3 +309,44 @@ def test_find_text_over_decorative_ignores_pairs_the_overlap_check_already_cover
     assert slide.find_text_over_decorative() == []
     with pytest.raises(ValueError, match="overlaps"):
         slide.assert_no_overlap_among_tracked()
+
+
+def test_allow_exempts_a_named_pair_from_the_overlap_check():
+    """Overlap that is the design -- a Venn lens, a label on its region, a
+    card stack -- had no sanctioned expression: deleting the scaffolded
+    call is silent and forbidden, and `decorative=True` exempts the element
+    from the check entirely. Naming the pair keeps the intent in the file.
+    """
+    from manim import RIGHT
+
+    slide = _DummySlide()
+    slide.track(Circle(radius=1), id="a")
+    slide.track(Circle(radius=1).shift(RIGHT * 0.5), id="b")
+
+    slide.assert_no_overlap_among_tracked(allow=[("a", "b")])
+    slide.assert_no_overlap_among_tracked(allow=[("b", "a")])  # order must not matter
+
+
+def test_allow_accepts_a_bare_id_that_may_overlap_anything():
+    from manim import RIGHT
+
+    slide = _DummySlide()
+    slide.track(Circle(radius=2), id="overlay")
+    slide.track(Circle(radius=0.3), id="a")
+    slide.track(Circle(radius=0.3).shift(RIGHT * 1.0), id="b")
+
+    slide.assert_no_overlap_among_tracked(allow=["overlay"])
+
+
+def test_allow_still_checks_every_pair_it_does_not_name():
+    """A pair exemption must stay a pair exemption -- otherwise it is the
+    deleted call it replaces, just spelled differently."""
+    from manim import RIGHT
+
+    slide = _DummySlide()
+    slide.track(Circle(radius=1), id="a")
+    slide.track(Circle(radius=1).shift(RIGHT * 0.5), id="b")
+    slide.track(Circle(radius=1).shift(RIGHT * 1.0), id="c")
+
+    with pytest.raises(ValueError, match="overlaps"):
+        slide.assert_no_overlap_among_tracked(allow=[("a", "b")])

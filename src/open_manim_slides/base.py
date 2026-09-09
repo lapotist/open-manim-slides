@@ -143,7 +143,7 @@ class Slide(_BaseSlide):
         self._active_ids.add(id)
         return mobj
 
-    def remove(self, *mobjects: Any) -> None:
+    def remove(self, *mobjects: Any) -> Any:
         """Deactivate tracked ids whose mobject is taken off screen.
 
         Manim mobjects persist once added until explicitly removed --
@@ -154,13 +154,16 @@ class Slide(_BaseSlide):
         instead of only ever recording an appearance for the single segment
         `track()` happened to be called in.
         """
-        super().remove(*mobjects)
+        result = super().remove(*mobjects)
         for id in list(self._active_ids):
             tracked = self._tracked_mobjects.get(id)
             if any(_removal_covers(removed, tracked) for removed in mobjects):
                 self._active_ids.discard(id)
+        # `Scene.remove` returns `Self` so callers can chain; returning
+        # None here would silently break any caller that does.
+        return result
 
-    def assert_no_overlap_among_tracked(self) -> None:
+    def assert_no_overlap_among_tracked(self, allow: Any = ()) -> None:
         """Check every currently-active, non-decorative tracked element pairwise for overlap.
 
         Convenience wrapper around `layout.assert_no_overlap` that gathers
@@ -170,9 +173,44 @@ class Slide(_BaseSlide):
 
         Ids tracked with `track(..., decorative=True)` are excluded from
         both sides of the comparison -- see `track()`'s docstring for why.
+
+        `allow` names overlaps that are the design, not a mistake -- a
+        Venn diagram's lens, a label deliberately sitting on its region, a
+        card stack. Entries are either an id (that element may overlap
+        anything) or a pair of ids (only those two may overlap each
+        other); prefer the pair, which stays a real check on everything
+        else. This exists because the alternatives were both bad: deleting
+        the scaffolded call, which the rules forbid because it silently
+        removes the check with nothing to notice, or reaching for
+        `decorative=True`, which exempts the element from the check
+        entirely and is forbidden for a segment's subject. Naming the pair
+        keeps the intent in the file where a reader and a later edit can
+        both see it.
         """
-        checked_ids = (id for id in self._active_ids if not self._manifest[id]["decorative"])
-        assert_no_overlap(*(self._tracked_mobjects[id] for id in checked_ids))
+        exempt_ids: set[str] = set()
+        exempt_pairs: set[frozenset[str]] = set()
+        for entry in allow:
+            if isinstance(entry, str):
+                exempt_ids.add(entry)
+                continue
+            first, second = entry
+            exempt_pairs.add(frozenset((first, second)))
+
+        checked = sorted(
+            id
+            for id in self._active_ids
+            if not self._manifest[id]["decorative"] and id not in exempt_ids
+        )
+        # Pairwise here rather than one `assert_no_overlap(*everything)`
+        # call, because a pair exemption has to be applied per pair. The
+        # message a collision raises is byte-identical either way.
+        for index, first in enumerate(checked):
+            for second in checked[index + 1 :]:
+                if frozenset((first, second)) in exempt_pairs:
+                    continue
+                assert_no_overlap(
+                    self._tracked_mobjects[first], self._tracked_mobjects[second]
+                )
 
     def find_text_over_decorative(
         self, clearance: float = DEFAULT_INK_CLEARANCE
@@ -271,4 +309,4 @@ class Slide(_BaseSlide):
             "frame_height": config.frame_height,
             "elements": list(self._manifest.values()),
         }
-        out_path.write_text(json.dumps(payload, indent=2))
+        out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

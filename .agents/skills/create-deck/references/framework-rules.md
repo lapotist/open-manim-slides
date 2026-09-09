@@ -35,6 +35,27 @@ why they're rules:
 If it fires on genuinely misplaced content, move the content. If it
 fires on a backdrop/containment pair (below), flag the backdrop.
 
+### `allow=` — overlap that is the design
+
+Some overlaps are correct and always will be: the lens of a Venn
+diagram, a label deliberately centred on the region it names, a stack of
+cards. Name the pair rather than removing the check:
+
+```python
+self.assert_no_overlap_among_tracked(allow=[("set-a", "set-b")])
+```
+
+An entry may also be a bare id, which lets that one element overlap
+anything (an overlay, a full-frame wash). Prefer the pair: it stays a
+real check on everything else, and it says in the file *which* two things
+are meant to touch, which the next edit needs to know.
+
+This exists because the two things authors reached for instead were both
+worse. Deleting the scaffolded call removes the check silently, with
+nothing to notice it. `decorative=True` exempts the element from every
+comparison, and is forbidden outright for a segment's subject. `allow=`
+is narrower than either and leaves the intent written down.
+
 ### `decorative=True` — narrow, exact criteria
 
 The overlap check compares axis-aligned bounding boxes, which are a
@@ -117,7 +138,12 @@ Prefer tokens over numbers, templates over hand-rolled patterns:
 - `title_slide(self, "...", id="title")` — the deck's opening title
   only.
 - `two_column(left, right)` — side-by-side halves, safe-frame-checked
-  as a pair.
+  as a pair. **For a pair inside one segment, not the deck's layout**: it
+  centres the halves on their own content width, so the column centres
+  move whenever either half changes size. When your deck file has a
+  composition block, place against `COL_LEFT_X` / `COL_RIGHT_X` instead —
+  the scaffolder leaves `two_column` out of such a file's imports for
+  exactly this reason.
 - `diagram_with_caption(self, diagram, "...", id="...")` — one
   explanatory line under a figure.
 - Font sizes: `FONT_SIZE_TITLE/HEADING/BODY/CAPTION`. Spacing for every

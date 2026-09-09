@@ -56,14 +56,17 @@ run the checks on your finished deck, don't trust your intent.
   with `get_tex()` under the term being discussed, an arrow from symbol
   to referent, or the previous segment's figure kept alongside. A shape
   nothing refers to doesn't satisfy this.
-- **R4 — If you write it, show it.** Scan every on-screen string for
-  action verbs (*rotate, turn, move, slide, grow, shrink, add, double,
-  halve, fold, flip, sweep, split, combine, rearrange, fill, cover,
-  trace, increase, decrease, cancel, balance*). Each hit needs an
+- **R4 — If you write it, show it.** Scan every sentence of on-screen
+  prose for action verbs (*rotate, turn, move, slide, grow, shrink, add,
+  double, halve, fold, flip, sweep, split, combine, rearrange, fill,
+  cover, trace, increase, decrease, cancel, balance*). Each hit needs an
   animation in that segment performing it. Can't animate it? Delete the
-  sentence — it's a promise the slide doesn't keep. `validate` reports
-  the flagrant case (a verb on screen while nothing but text is animated);
-  matching each verb to the animation that performs it is yours.
+  sentence — it's a promise the slide doesn't keep. **Prose here means
+  what R7 means by it**: headings, labels and equations are exempt, so a
+  deck may be called "A Moving Point" on a slide where nothing has moved
+  yet. `validate` reports the flagrant case (a verb on screen while
+  nothing but text is animated); matching each verb to the animation that
+  performs it is yours.
 - **R5 — At most 6 `self.play()` per segment** (4 for middle school),
   and the heading arrives *with* the first figure, never on its own
   beat: `self.play(Write(head), Create(figure))`. And the reader sets
@@ -82,7 +85,11 @@ Two framework rules with no error message when violated, so they live
 here: **never delete the scaffolded
 `self.assert_no_overlap_among_tracked()` line**, and **never mark a
 segment's subject `decorative=True`** (exact criteria for that flag:
-`framework-rules.md`). Marking something decorative no longer hides it
+`framework-rules.md`). When two things overlap *on purpose* — a Venn
+lens, a label sitting on its region, a card stack — name the pair:
+`self.assert_no_overlap_among_tracked(allow=[("lens-a", "lens-b")])`.
+That keeps the check on everything else and puts the intent in the file.
+Deleting the call and reaching for `decorative` are still both wrong. Marking something decorative no longer hides it
 completely — `validate` reports text landing on a decorative element's
 strokes — but it does still remove it from the overlap check, so the rule
 stands.
@@ -179,13 +186,13 @@ a composition block already derived from the real frame, and every slot in
 it is inside the safe margin by construction.
 
 ```python
-SAFE_X = 6.61          # |x| any element must stay within
-SAFE_Y = 3.5           # |y| any element must stay within
-HEAD_Y = 3.0           # heading() sits here; leave this band clear
-COL_LEFT_X = -3.45     # centre of the figure column
-COL_RIGHT_X = 3.45     # centre of the accumulating-text column
-COL_W = 6.3            # size the figure to FILL this, not float in it
-ROW_Y = (1.9, 0.9, -0.1, -1.1, -2.1)   # text rows, top-down
+SAFE_X = 6.61                         # |x| any element must stay within
+SAFE_Y = 3.5                          # |y| any element must stay within
+HEAD_Y = 3.15                         # heading() centres here; keep everything else below 2.8
+COL_LEFT_X = -3.45                    # centre of the figure column
+COL_RIGHT_X = 3.45                    # centre of the accumulating-text column
+COL_W = 6.3                           # size the figure to FILL this, not float in it
+ROW_Y = (1.9, 0.9, -0.1, -1.1, -2.1)  # text rows, top-down
 ```
 
 - **Left column** — the figure, sized to *fill* `COL_W` (roughly 5-6
@@ -202,10 +209,29 @@ ROW_Y = (1.9, 0.9, -0.1, -1.1, -2.1)   # text rows, top-down
 Decide here — not while debugging a layout — where you deviate (a
 full-width title, a summary that centres).
 
+**If the deck is not two columns, say so at scaffold time** rather than
+placing against slots you are going to ignore. A deck built around one
+central figure — a number line the whole lesson lives on, a dissection
+proof, a single growing diagram — is a real shape, and
+`new_deck(..., composition="none")` omits the column block for it (you
+then own placement, and `two_column(left, right)` is imported for the
+within-segment pairs). What is *not* a shape is taking the two-column
+file and centring everything in it anyway: that leaves both columns
+unclaimed, and `blankspace` will report the two dead sides in step 6.
+
 Targets, checked mechanically in step 6: **every segment ≥ 20% fill, no
 region ≥ 15% of the frame left unused by the whole deck.**
 
 ## 3. Scaffold (deterministic, not freehand)
+
+**The project already chose its mode; you do not.** If the project root
+has an `open-manim-slides.json`, `new_deck` reads it and you pass nothing
+extra. `simple` gives you the two-column composition, a star import and
+the full checklist. `advanced` hands the composition back to you, imports
+a curated list and drops the R1 ceiling — more room to present a topic
+its own way, fewer rails to lean on. Neither changes what `validate`
+enforces. If the user asks for one during step 1, pass `mode="advanced"`
+below; otherwise say nothing and take the project's default.
 
 Feed it the table — every column, not just the names. The plan is the
 input to the file's structure, so nothing you decided in step 2 has to be
@@ -239,6 +265,13 @@ every handed-off attribute, and one `segment_<name>` method per row —
 each stating what it carries in, what it must hand off, its audience play
 and word budget, and ending in `self.assert_no_overlap_among_tracked()`
 (not optional). The notes are there to be deleted as you satisfy them.
+
+**The imports are already there too** — `numpy as np`, all of `manim`,
+and every theme token and template this skill tells you to prefer over a
+literal. Write the segment; do not edit the import block. (`two_column`
+is the one template deliberately left out: it centres its halves on their
+own content width, so it fights the fixed column slots above. Place
+against `COL_LEFT_X` / `COL_RIGHT_X` instead.)
 
 ## 4. Fill in each segment
 
@@ -331,13 +364,14 @@ prints a progress bar per animation that buries anything useful:
 
 ```bash
 manim render -ql decks/<slug>.py <ClassName> 2>&1 | tail -3
-python -m open_manim_slides.frames <ClassName> > /dev/null
+python -m open_manim_slides.frames <ClassName>
 python -m open_manim_slides.blankspace <ClassName>
 ```
 
 `frames` writes, per segment, a final-frame PNG and a 6-tile contact
-sheet under `media/review/<ClassName>/`. **Read every image — all of
-them in one batch, not one per turn.** `blankspace` measures those same
+sheet under `media/review/<ClassName>/`, and prints their paths — that
+list is the batch to read, so don't discard it. **Read every image — all
+of them in one batch, not one per turn.** `blankspace` measures those same
 stills and prints per-segment fill percentages plus any region **no
 segment ever uses** — do not eyeball emptiness, read its numbers.
 
@@ -413,9 +447,10 @@ at `-ql`, and a whole run's machine time is under three minutes:
 - **Rendering to find layout errors.** Step 5 exists for this. Five
   placement mistakes found one render at a time is five cycles for
   arithmetic that validates in two seconds, all at once.
-- **Unbatched edits.** Adding an import in one turn and using it in the
-  next; fixing one review finding, re-rendering, fixing the next. Group
-  them.
+- **Unbatched edits.** Fixing one review finding, re-rendering, fixing
+  the next. Group them. (The import half of this is gone: the scaffolded
+  file already imports everything the workflow names, so reaching for
+  `np.array` or `COLOR_ACCENT_2` costs nothing.)
 - **Dumping raw tool output.** `tail -100` on a render captures a hundred
   lines of progress bars; `tail -3` carries the same signal.
 - **Re-reading files you just wrote.** Keep track of what you authored

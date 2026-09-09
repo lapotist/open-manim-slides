@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from manim import (
     FadeTransform,
     LaggedStart,
     Indicate,
+    Line,
     MathTex,
     Rotate,
     Square,
@@ -32,6 +34,15 @@ from open_manim_slides.validate import (
     load_scene_class,
     main,
     validate_scene,
+)
+
+# `doctor` lists latex as *optional*, and manim only needs it to compile
+# `MathTex`/`Tex`. Tests that build one therefore skip without it, the same
+# way `test_playback.py` skips without Firefox -- otherwise a correct
+# checkout on a machine that took the framework at its word reports three
+# red tests and no way to tell them from a real regression.
+requires_latex = pytest.mark.skipif(
+    shutil.which("latex") is None, reason="needs a LaTeX install to compile MathTex"
 )
 
 
@@ -202,6 +213,7 @@ class _TextMorphDeck(Slide):
         self.play(LaggedStart(Transform(head, Text("Counting Outcomes"))))
 
 
+@requires_latex
 def test_illegible_text_morphs_are_reported():
     """`Transform` interpolates glyph outlines, so swapping one sentence for
     another spends most of the play unreadable. A final-frame review cannot
@@ -215,6 +227,7 @@ def test_illegible_text_morphs_are_reported():
     assert "FadeTransform" in failures[0].message
 
 
+@requires_latex
 def test_a_morph_nested_in_an_animation_group_is_still_found():
     """Wrapping the same bug in LaggedStart/AnimationGroup must not hide it."""
     failures = validate_scene(_TextMorphDeck)
@@ -222,6 +235,7 @@ def test_a_morph_nested_in_an_animation_group_is_still_found():
     assert any(failure.segment == "segment_bad_morph_nested_in_a_group" for failure in failures)
 
 
+@requires_latex
 def test_legible_text_swaps_are_not_flagged():
     """FadeTransform cross-dissolves, TransformMatchingTex glides shared
     terms, shape-to-shape interpolation is the whole point, and a couple of
@@ -235,6 +249,7 @@ def test_legible_text_swaps_are_not_flagged():
     assert "segment_tiny_number_is_fine" not in flagged
 
 
+@requires_latex
 def test_glyph_count_not_source_length_decides_smallness():
     """`tex_string` is LaTeX source: `\\tfrac12` is eight characters but one
     small fraction on screen. Thresholding on source length would flag a
@@ -483,3 +498,62 @@ def test_an_action_verb_with_nothing_but_text_animated_is_reported():
 
 def test_an_action_verb_performed_by_a_figure_is_not_reported():
     assert validate_scene(_PerformedActionDeck) == []
+
+
+class _DrivenDiagramDeck(Slide):
+    """`motion-recipes.md` recipe 2, exactly as written.
+
+    The tracker is never added to the scene -- `always_redraw` adds the
+    dot, not the tracker -- so the "is this mobject on screen?" test cannot
+    see it, and this segment used to report `NoChangeAnimation` while
+    performing the single most animated thing a deck can do.
+    """
+
+    def construct(self) -> None:
+        self.segment_open()
+        self.next_slide()
+        self.segment_sweep()
+        self.next_slide()
+
+    def segment_open(self) -> None:
+        self.line = Line(LEFT * 3, RIGHT * 3)
+        self.play(FadeIn(self.line))
+
+    def segment_sweep(self) -> None:
+        tracker = ValueTracker(-3.0)
+        dot = always_redraw(lambda: Dot(RIGHT * tracker.get_value()))
+        self.play(FadeIn(dot))
+        self.play(tracker.animate.set_value(3.0))
+        dot.clear_updaters()
+
+
+class _IdleTrackerDeck(Slide):
+    """Nothing on screen reads the tracker, so nothing actually changes."""
+
+    def construct(self) -> None:
+        self.segment_open()
+        self.next_slide()
+        self.segment_sweep()
+        self.next_slide()
+
+    def segment_open(self) -> None:
+        self.box = Square(side_length=1)
+        self.play(FadeIn(self.box))
+
+    def segment_sweep(self) -> None:
+        self.play(ValueTracker(0.0).animate.set_value(3.0))
+
+
+def test_a_value_tracker_sweep_counts_as_the_segment_change():
+    """R2's own rule text lists `ValueTracker` + `.animate.set_value`, and
+    the recipe that uses it is the framework's answer to "the picture is
+    the argument". A check that rejects its own documented recipe teaches
+    the author to ignore the check."""
+    assert validate_scene(_DrivenDiagramDeck) == []
+
+
+def test_a_tracker_nothing_reads_is_still_no_change():
+    """The exemption is gated on something on screen carrying an updater,
+    not granted to `ValueTracker` outright -- sweeping a number no figure
+    reads changes nothing the audience can see."""
+    assert _types(validate_scene(_IdleTrackerDeck)) == ["NoChangeAnimation"]

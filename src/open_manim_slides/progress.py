@@ -64,17 +64,29 @@ class ProgressError(RuntimeError):
 
 
 def parse_budget(text: str) -> int:
-    """Seconds from `20m`, `90s`, `1h30m`, or a bare number of minutes."""
+    """Seconds from `20m`, `90s`, `1h30m`, or a bare number of minutes.
+
+    A budget that parses to zero is rejected rather than stored: every
+    fraction-of-budget figure downstream divides by it, so `progress start
+    Deck 0` used to raise `ZeroDivisionError` from inside the status line
+    the tracker exists to print.
+    """
     text = text.strip().lower()
     if not text:
         raise ProgressError("Empty budget.")
     if re.fullmatch(r"\d+(\.\d+)?", text):
-        return int(float(text) * 60)
-    matches = re.findall(r"(\d+(?:\.\d+)?)\s*([hms])", text)
-    if not matches:
-        raise ProgressError(f"Could not read a duration from {text!r} (try '20m', '90s', '1h30m').")
-    scale = {"h": 3600, "m": 60, "s": 1}
-    return int(sum(float(value) * scale[unit] for value, unit in matches))
+        seconds = int(float(text) * 60)
+    else:
+        matches = re.findall(r"(\d+(?:\.\d+)?)\s*([hms])", text)
+        if not matches:
+            raise ProgressError(
+                f"Could not read a duration from {text!r} (try '20m', '90s', '1h30m')."
+            )
+        scale = {"h": 3600, "m": 60, "s": 1}
+        seconds = int(sum(float(value) * scale[unit] for value, unit in matches))
+    if seconds <= 0:
+        raise ProgressError(f"A budget of {text!r} is zero-length; give a positive duration.")
+    return seconds
 
 
 def format_duration(seconds: float) -> str:
@@ -106,7 +118,8 @@ class Run:
             json.dumps(
                 {"deck": self.deck, "started": self.started, "budget": self.budget, "phases": self.phases},
                 indent=2,
-            )
+            ),
+            encoding="utf-8",
         )
 
     @classmethod
@@ -114,7 +127,7 @@ class Run:
         path = progress_dir / f"{deck}.json"
         if not path.is_file():
             raise ProgressError(f"No run in progress for {deck!r} -- run `progress start {deck}` first.")
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         return cls(
             deck=data["deck"],
             started=data["started"],
@@ -235,6 +248,18 @@ def start(deck: str, budget: str | None = None, progress_dir: Path = PROGRESS_DI
 
 
 def mark_phase(deck: str, phase: str, progress_dir: Path = PROGRESS_DIR) -> Run:
+    """Record a phase boundary. Rejects a name the schedule does not know.
+
+    An unrecognised name used to be stored happily and then read back as
+    an expected share of zero, so every later call reported `BEHIND` and
+    advised cutting scope for a run that was on time. A typo is the likely
+    cause -- the names come from a list in `SKILL.md` -- and silently
+    inverting the tracker's verdict is worse than refusing the call.
+    """
+    if phase not in PHASE_SHARE:
+        raise ProgressError(
+            f"Unknown phase {phase!r}. Expected one of: {', '.join(PHASE_ORDER)}."
+        )
     run = Run.load(deck, progress_dir)
     run.phases.append({"name": phase, "at": time.time()})
     run.save()
