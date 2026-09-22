@@ -3,7 +3,7 @@ import json
 import pytest
 from manim import Circle
 
-from open_manim_slides import Slide
+from open_manim_slides import Slide, ThreeDSlide
 
 
 class _DummySlide(Slide):
@@ -350,3 +350,27 @@ def test_allow_still_checks_every_pair_it_does_not_name():
 
     with pytest.raises(ValueError, match="overlaps"):
         slide.assert_no_overlap_among_tracked(allow=[("a", "b")])
+
+
+class _DummyThreeDSlide(ThreeDSlide):
+    def construct(self) -> None:
+        pass
+
+
+def test_three_d_slide_is_a_slide_with_camera_controls():
+    """`issubclass(ThreeDSlide, Slide)` is what lets `validate.py` and
+    every `assert_*` check recognize a 3D deck without special-casing it."""
+    slide = _DummyThreeDSlide()
+
+    assert isinstance(slide, Slide)
+    assert hasattr(slide, "set_camera_orientation")
+    assert hasattr(slide, "move_camera")
+
+
+def test_three_d_slide_tracks_and_checks_like_a_plain_slide():
+    from manim import ORIGIN, Arrow3D
+
+    slide = _DummyThreeDSlide()
+    slide.track(Arrow3D(start=ORIGIN, end=[1, 1, 1]), id="vec")
+
+    slide.assert_no_overlap_among_tracked()  # a single tracked element can't overlap anything

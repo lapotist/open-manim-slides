@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 #: public name -> submodule it lives in
 _EXPORTS = {
     "Slide": "base",
+    "ThreeDSlide": "base",
     "convert_to_html": "convert",
     "assert_no_overlap": "layout",
     "assert_reasonably_centered": "layout",
@@ -43,7 +44,7 @@ _EXPORTS = {
 __all__ = sorted(_EXPORTS)
 
 if TYPE_CHECKING:  # keep type checkers and editors seeing the real symbols
-    from open_manim_slides.base import Slide
+    from open_manim_slides.base import Slide, ThreeDSlide
     from open_manim_slides.convert import convert_to_html
     from open_manim_slides.layout import (
         assert_no_overlap,

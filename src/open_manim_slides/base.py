@@ -20,6 +20,7 @@ from typing import Any
 
 from manim import config
 from manim_slides import Slide as _BaseSlide
+from manim_slides import ThreeDSlide as _BaseThreeDSlide
 
 from open_manim_slides.layout import (
     DEFAULT_INK_CLEARANCE,
@@ -310,3 +311,38 @@ class Slide(_BaseSlide):
             "elements": list(self._manifest.values()),
         }
         out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+class ThreeDSlide(Slide, _BaseThreeDSlide):
+    """`Slide` with a movable camera, for a deck that needs a genuine 3D shot.
+
+    `(Slide, _BaseThreeDSlide)` mirrors manim-slides' own
+    `ThreeDSlide(Slide, ThreeDScene)` -- both `manim_slides.Slide` and
+    `ThreeDScene` sit under `Scene` without redefining `__init__`, so this
+    linearizes cleanly to `ThreeDSlide -> Slide -> manim_slides.ThreeDSlide
+    -> manim_slides.Slide -> BaseSlide -> ThreeDScene -> Scene`. It needs no
+    `__init__` of its own for the same reason: `Slide.__init__` already
+    chains through `super().__init__(**kwargs)`.
+
+    Tracking, the manifest, and every `assert_*` check work unmodified --
+    they read `get_corner()`, which every mobject (2D or 3D) exposes -- but
+    they still compare only x/y, so two 3D mobjects that are visually
+    separated in z (depth) but share an x/y footprint will still report an
+    `assert_no_overlap_among_tracked` collision. Name the pair in `allow=`
+    when that's the composition, same as any other deliberate overlap.
+
+    Default camera orientation (`phi=0`) renders identically to a plain
+    `Slide`, so a deck can open flat and cut into 3D only for the segment
+    that needs it -- `set_camera_orientation()` is instant (no `self.play`)
+    and safe to call anywhere; `move_camera()` animates the cut and *must*
+    be paired with a change on an already-tracked mobject (via
+    `added_anims=`) to satisfy R2, because the camera's own phi/theta value
+    trackers are never part of `scene.mobjects` and so can never count as
+    "something on screen changed."
+
+    One real construct-time incompatibility, not a framework bug:
+    `GrowArrow` calls `Arrow.scale(0, scale_tips=True, ...)`, a 2D-only
+    `Arrow` override `Arrow3D` doesn't have (it inherits plain
+    `VMobject.scale`), so `GrowArrow(an_arrow_3d)` raises `TypeError`.
+    Use `Create` or `GrowFromPoint` for `Arrow3D` instead.
+    """

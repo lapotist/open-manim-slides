@@ -91,6 +91,25 @@ dependency `manimpango` to build (see `README.md`).
     `validate.py` is what calls it; text is found by descending into
     tracked groups, since a caption is as often a group's child as a
     tracked mobject in its own right.
+  - `ThreeDSlide(Slide, manim_slides.ThreeDSlide)` — same tracking,
+    manifest, and `assert_*` checks, plus a movable camera, for a deck
+    where at least one segment needs a genuine 3D shot (a Scene can't
+    switch base class mid-file, so this is a whole-deck choice, made by
+    subclassing it instead of `Slide`). Mirrors manim-slides' own
+    `ThreeDSlide(Slide, ThreeDScene)` pattern one level down, which is
+    what makes the MRO resolve without a custom `__init__`: neither
+    `manim_slides.Slide`/`BaseSlide` nor `ThreeDScene` redefine it, so
+    `Slide.__init__`'s existing `super().__init__(**kwargs)` chain reaches
+    `Scene.__init__` regardless of which mixin sits in between. Default
+    camera (`phi=0`) renders identically to a plain `Slide`, so 2D
+    segments before and after a 3D one need nothing special.
+    `validate.py`'s `load_scene_class` originally picked its deck class by
+    `issubclass(value, Slide) and value is not Slide` over every name in
+    the module's namespace — which made `ThreeDSlide` itself a second
+    "candidate" the moment a deck imported it to subclass, since it also
+    satisfies both conditions. Fixed by scoping candidates to classes
+    *defined in* the deck module (`value.__module__ == module.__name__`)
+    rather than merely imported into it.
 - `src/open_manim_slides/layout.py` — safety primitives, one slice below
   the design-system layer in `theme.py`:
   - `assert_within_safe_frame(mobj)` / `assert_no_overlap(*mobjects)` —

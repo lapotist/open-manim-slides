@@ -596,7 +596,14 @@ def load_scene_class(path: Path, class_name: str | None = None) -> type:
     candidates = [
         value
         for value in vars(module).values()
-        if isinstance(value, type) and issubclass(value, Slide) and value is not Slide
+        if isinstance(value, type)
+        and issubclass(value, Slide)
+        # Defined *in this module*, not merely imported into it -- a deck
+        # that imports `ThreeDSlide` to subclass it would otherwise make
+        # `ThreeDSlide` itself a second candidate (`issubclass` and
+        # `is not Slide` both pass it), reporting a false "several Slide
+        # subclasses" ambiguity for every 3D deck.
+        and value.__module__ == module.__name__
     ]
     if class_name is not None:
         for candidate in candidates:

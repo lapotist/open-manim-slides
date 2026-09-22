@@ -348,6 +348,25 @@ def test_load_scene_class_names_candidates_when_several_exist(tmp_path: Path):
     assert load_scene_class(path, "DeckB").__name__ == "DeckB"
 
 
+def test_load_scene_class_ignores_an_imported_threedslide_base(tmp_path: Path):
+    """A deck importing `ThreeDSlide` to subclass it must not itself count as a candidate.
+
+    `ThreeDSlide` also satisfies `issubclass(value, Slide) and value is not
+    Slide` -- it's a `Slide` subclass and it isn't literally `Slide` -- so
+    before candidates were scoped to classes *defined in the deck module*,
+    importing it made every 3D deck report a false "several Slide
+    subclasses" ambiguity between the deck's own class and the base class
+    it imported.
+    """
+    path = tmp_path / "three_d_deck.py"
+    path.write_text(
+        "from open_manim_slides import ThreeDSlide\n"
+        "class Deck3D(ThreeDSlide):\n    pass\n"
+    )
+
+    assert load_scene_class(path).__name__ == "Deck3D"
+
+
 def test_main_rejects_wrong_arg_count(capsys):
     assert main([]) == 2
     assert "usage" in capsys.readouterr().err

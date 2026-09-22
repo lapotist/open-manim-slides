@@ -14,7 +14,8 @@ References (in this skill's `references/` directory):
 - `exemplar.md` — one segment at target quality. **Read it in step 2.**
 - `motion-recipes.md` — verified animation snippets. **Read it the
   moment your plan table names `Transform`, `ValueTracker`,
-  `MoveAlongPath`, `Axes`, or `Brace` — before writing that segment.**
+  `MoveAlongPath`, `Axes`, `Brace`, or any 3D construct (`ThreeDAxes`,
+  `Arrow3D`, a camera move) — before writing that segment.**
 - `framework-rules.md` — tracking/check mechanics. **Read it whenever an
   `assert_*` raises, before changing any code.**
 

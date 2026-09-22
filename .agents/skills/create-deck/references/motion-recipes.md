@@ -218,7 +218,49 @@ self.play(FadeOut(figure), Transform(keeper, target))
 *families*, so it still catches the case where the two arguments look
 unrelated.
 
-## Out of scope
+## 12. 3D — `open_manim_slides.ThreeDSlide`, for a genuine camera shot
 
-Anything needing `MovingCameraScene` or `ThreeDScene` — decks subclass
-the framework's `Slide`, which is neither.
+Subclass `ThreeDSlide` (not `Slide`) for the whole deck if *any* segment
+needs a real 3D vector, surface, or camera move — a Scene can't switch
+base class mid-file. Its default camera (`phi=0`) renders identically to a
+plain `Slide`, so 2D segments before and after the 3D one need no special
+handling:
+
+```python
+from open_manim_slides import ThreeDSlide
+
+class MyDeck(ThreeDSlide):
+    ...
+
+    def segment_into_3d(self):
+        self.set_camera_orientation(phi=70 * DEGREES, theta=-45 * DEGREES)  # instant, no self.play
+        axes = self.track(ThreeDAxes(x_range=[-4, 4], y_range=[-4, 4], z_range=[-3, 3]),
+                           id="axes3d", decorative=True)
+        vec = self.track(Arrow3D(start=ORIGIN, end=[2, 2, 2], color=COLOR_ACCENT), id="vec")
+        self.play(Create(axes), Create(vec))   # NOT GrowArrow -- see gotcha below
+        self.assert_no_overlap_among_tracked()
+```
+
+Two gotchas, both construct-verified:
+
+- **`GrowArrow` raises on `Arrow3D`.** It calls
+  `Arrow.scale(0, scale_tips=True, ...)`, a 2D-only override `Arrow3D`
+  doesn't have (`Arrow3D` inherits plain `VMobject.scale`, which rejects
+  the kwarg outright — `TypeError: VMobject.scale() got an unexpected
+  keyword argument 'scale_tips'`). Use `Create` or `GrowFromPoint` for
+  `Arrow3D` instead.
+- **`move_camera()`'s own animation never satisfies R2.** It animates the
+  camera's phi/theta/zoom via internal `ValueTracker`s that are never part
+  of `scene.mobjects`, so nothing about the cut itself counts as "changed
+  something on screen" — pair it with a real change via `added_anims=`:
+
+  ```python
+  self.move_camera(phi=60 * DEGREES, theta=-60 * DEGREES,
+                    added_anims=[self.vec.animate.set_color(COLOR_ACCENT_2)])
+  ```
+
+The safe-frame and overlap checks still only compare x/y (`get_corner()`
+on a 3D mobject still returns x/y/z, but `_bbox` reads just the first two)
+— two vectors separated in z but sharing an x/y footprint will report a
+false `assert_no_overlap_among_tracked` collision. Name the pair in
+`allow=`, same as any other overlap that is the design.

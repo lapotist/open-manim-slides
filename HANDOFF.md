@@ -1,6 +1,6 @@
 # open-manim-slides — Handoff
 
-Status: updated after the eighteenth implementation session, 2026-09-08.
+Status: updated after the nineteenth implementation session, 2026-09-22.
 MIT, public at **https://github.com/lapotist/open-manim-slides**, `main`
 pushed through session seventeen. Read this before doing further work —
 it's the authoritative summary of what's decided, what's built, and what's
@@ -806,6 +806,107 @@ is what a review from inside the project reliably misses.
 - **Verified**: 234 tests. `init --mode advanced` writes the settings file,
   and a deck scaffolded afterwards with no arguments picks it up — no
   composition block, curated imports, brief stub — and executes.
+
+**19 (2026-09-22)** — First 3D deck, user-directed (`decks/
+vectors_transformations_and_determinants.py`: vectors, addition, dot
+product, a linear transformation, the determinant, then a real 3D vector
+with a camera move). The environment had never been set up in this
+container: `pip install -e ".[dev]"` needed `libcairo2-dev`/
+`libpango1.0-dev`/`ffmpeg` (session 18's finding, still accurate) and no
+LaTeX was installed at all, so `MathTex` was unavailable until
+`texlive-latex-extra`/`texlive-science`/`dvisvgm`/`cm-super` went in.
+
+- **`ThreeDSlide` built** (`base.py`) — `class ThreeDSlide(Slide,
+  _BaseThreeDSlide)`, mirroring manim-slides' own `ThreeDSlide(Slide,
+  ThreeDScene)` pattern one level down. Verified by construction that this
+  MRO resolves without a custom `__init__` (neither `manim_slides.Slide`/
+  `BaseSlide` nor `ThreeDScene` override it, so `Slide.__init__`'s existing
+  `super().__init__(**kwargs)` chain already reaches `Scene.__init__`
+  regardless of which mixin sits in between). Default camera (`phi=0`)
+  renders identically to a plain `Slide`, so a deck can open flat and cut
+  into 3D only for the segment that needs it — confirmed by rendering a
+  fixed-in-frame heading over a tilted camera and reading the frame back:
+  crisp, flat, unrotated.
+  - **A real bug fell out immediately**: `validate.py`'s `load_scene_class`
+    picked the deck's class by `issubclass(value, Slide) and value is not
+    Slide` over the whole module namespace, and `ThreeDSlide` itself
+    satisfies both conditions the moment a deck imports it to subclass —
+    so every 3D deck reported a false "several Slide subclasses" ambiguity
+    between the deck's own class and the base class it imported. Fixed by
+    scoping candidates to `value.__module__ == module.__name__` (defined
+    *in* the deck file, not merely imported into it), which also let the
+    stale `value is not Slide` special-case be dropped entirely. Pinned
+    with a regression test importing exactly that shape.
+  - **Two 3D gotchas banked into `motion-recipes.md`** (recipe 12), both
+    construct-verified before being written down, not assumed: `GrowArrow`
+    raises on `Arrow3D` (`TypeError: VMobject.scale() got an unexpected
+    keyword argument 'scale_tips'` — it calls `Arrow.scale(0,
+    scale_tips=True, ...)`, a 2D-only override `Arrow3D` doesn't have; use
+    `Create` instead), and `move_camera()`'s own animation never satisfies
+    R2 (its phi/theta/zoom `ValueTracker`s are never part of
+    `scene.mobjects`, so nothing about the cut itself can count as "changed
+    something on screen" — pair it with a real change via `added_anims=`).
+- **The safe-frame/overlap checks' 2D-only nature has a real cost in 3D,
+  not just a theoretical one.** `_bbox` reads `get_corner()`'s x/y and
+  ignores z, which is *exactly* right for a fixed-in-frame heading (still
+  meaningful 2D screen-space) but only a rough proxy for a 3D mobject's
+  true on-screen footprint under a rotated camera — two vectors separated
+  in depth but sharing an x/y footprint report a false
+  `assert_no_overlap_among_tracked` collision (worked around with `allow=`,
+  same mechanism as any other deliberate overlap). Documented in
+  `ThreeDSlide`'s own docstring so the next 3D deck doesn't rediscover it.
+- **A shear's reach scales with the grid's own half-extent, and the first
+  attempt at `apply_matrix()`-driven grid warping did not account for
+  it.** Applying a shear matrix to a `NumberPlane` sized to fill the
+  column (as segments 1-4 correctly do) sends its far corners flying: the
+  top-right corner landed on top of the text column and the bottom-left
+  corner left the safe frame entirely — both invisible until `validate`
+  ran, at which point they read as an ordinary safe-frame/overlap failure
+  with no hint of the geometric cause. Fixed by zooming the grid down by
+  half (`plane`/`vec_v`/`vec_w` all `.animate.scale(0.5, about_point=
+  origin)`) in its own beat *before* the shear, rather than shrinking the
+  grid for the whole deck — segments 1-4 keep the larger, column-filling
+  grid, only the transformation segment needs the extra headroom.
+  `apply_matrix(matrix, about_point=...)` also defaults `about_point` to
+  the *world* origin, not the mobject's own center — every call in this
+  deck passes `about_point=plane.c2p(0, 0)` explicitly, and the plane's
+  x/y scale has to be isotropic (equal scene-units-per-axis-unit on both
+  axes) for a raw numeric matrix applied to *scene*-space points to equal
+  the intended *axis*-space linear map at all.
+- **The visual review caught what `validate` structurally cannot**, same
+  shape as sessions eight/fourteen/seventeen: `vec_w` and the transformed
+  unit square shared `COLOR_ACCENT_2`, reading as one indistinguishable
+  yellow blob where they overlapped near the origin (fixed: the square
+  isn't compared *against* v or w, it measures the region they span, so it
+  took `COLOR_MUTED` instead) — no check flags a color choice. Also caught
+  by rendering and reading the *contact sheet*, not the final frame
+  (review Q7): a `FadeTransform` between the 3D deck's two fixed-in-frame
+  headings rendered its interpolated mobject tilted with the still-moving
+  camera, only snapping flat on landing, and a plain `FadeOut`+`Write` pair
+  tried next just ghosted both strings through each other at one shared
+  position. Neither is `IllegibleTextMorph` (both strings stay individually
+  legible, just wrong), so neither is mechanically catchable — fixed with
+  an instant `self.remove(old_head)` followed by a plain `Write(new_head)`,
+  which is what segment 7's own (already-correct) heading entrance did
+  from the start. **Lesson for `motion-recipes.md`'s `FadeTransform`
+  guidance**: it is not proven safe with `add_fixed_in_frame_mobjects` and
+  should not be reached for there without re-verifying.
+- **Scope note**: this deck deliberately does not attempt R1's "≤3 new
+  symbols" (middle-school) framing — high-school was picked as the closer
+  audience fit for matrix/determinant notation, and even so the deck sits
+  at roughly the ≤8 symbol ceiling by design (reusing `v`/`w` throughout,
+  one concrete matrix, no generalization to `a,b,c,d`). Not re-litigated
+  against session seventeen's R3/R5/R7 measurements — this is a single
+  real deck, not a corpus addition.
+- **Verified**: `validate` clean, `-ql` render → `frames` → `blankspace`
+  (dead space 27%→26%, all 8 segments ≥20% fill after the grid-size and
+  color fixes) → full-quality render, all in the fresh venv built this
+  session. 238 tests collected (3 new: two for `ThreeDSlide` itself, one
+  pinning the `load_scene_class` fix), 232 passed, 2 skipped (browser
+  playback — no Firefox in this container, as session 18 also hit), 4
+  failed on `test_webrunner.py` for want of the optional `fastapi` extra
+  (`pip install -e ".[web]"` was never run this session — pre-existing gap,
+  not a regression).
 
 ## Immediate next steps (priority order)
 
